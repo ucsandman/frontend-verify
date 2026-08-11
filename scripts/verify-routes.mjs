@@ -133,6 +133,25 @@ async function main() {
   const PROBE_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "probe.js"), "utf8")
     .split("\n").join(" ").replace(/\s+/g, " ").trim();
 
+  // axe-core is optional: resolved from the TARGET repo's node_modules, not this skill's.
+  // Absent is normal (most repos verified here never installed it) so skip quietly, never fail.
+  let AXE_SRC = null;
+  try {
+    AXE_SRC = readFileSync(join(cfg.rootDir || process.cwd(), "node_modules", "axe-core", "axe.min.js"), "utf8");
+  } catch {
+    console.log("axe-core not found in the target repo. Skipping accessibility rules. Fix: npm i -D axe-core");
+  }
+
+  // axe.min.js is ~560KB, far past the ~8000 char Windows cmd.exe command-line limit a
+  // single eval argument can carry (confirmed: "The command line is too long."). A local
+  // HTTP server does not route around this either: the target is HTTPS, and browsers
+  // block an HTTPS page from loading an HTTP script as mixed content (confirmed: fetch
+  // and <script src> both threw "Failed to fetch" against http://127.0.0.1). So instead,
+  // base64-encode it once here and send it to the page in small chunks (see AXE_CHUNK
+  // below), which is well within the command-line limit per call.
+  const AXE_B64 = AXE_SRC ? Buffer.from(AXE_SRC, "utf8").toString("base64") : null;
+  const AXE_CHUNK = 7000;
+
   const S = `-s=${session}`;
   mkdirSync(outDir, { recursive: true });
 
@@ -238,6 +257,37 @@ async function main() {
         } else {
           reasons.push(`probe failed at width ${w}`);
         }
+      }
+
+      // axe-core, once per route at the widest viewport. wcag22aa is REQUIRED in the tag
+      // list below: without it target-size (WCAG 2.2) never runs, even with axe loaded.
+      if (AXE_SRC) {
+        cli([S, "resize", String(Math.max(...widths)), String(cfg.viewportHeight || 900)]);
+        // Send axe.min.js to the page in AXE_CHUNK-sized base64 pieces (each call is one
+        // eval argument, so each must stay under the command-line limit), then decode and
+        // run the reassembled source with an indirect eval so it executes in true global
+        // scope — same as a <script> tag would — and axe-core's UMD bundle attaches
+        // window.axe the normal way.
+        cli([S, "--raw", "eval", "window.__axeB64=[]"]);
+        for (let i = 0; i < AXE_B64.length; i += AXE_CHUNK) {
+          const chunk = AXE_B64.slice(i, i + AXE_CHUNK);
+          cli([S, "--raw", "eval", `window.__axeB64.push("${chunk}")`]);
+        }
+        // A single expression, not statements: playwright-cli's eval wraps the argument in
+        // a return-expression context, and a bare top-level `;` there is a syntax error.
+        cli([S, "--raw", "eval", "(()=>{(0,eval)(atob(window.__axeB64.join('')));window.__axeB64=null;return 1})()"]); // defines window.axe
+        const axeExpr = `axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa']}}).then(r=>JSON.stringify(r.violations.map(v=>({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.slice(0,3).map(n=>n.target.join(' '))}))))`;
+        const axeRaw = cli([S, "--raw", "eval", axeExpr]).out;
+        // Double JSON.parse is intentional: --raw serializes the resolved promise value,
+        // and the expression itself already returned a JSON string.
+        try {
+          for (const v of JSON.parse(JSON.parse(axeRaw))) {
+            findings.push({
+              rv: null, rule: `axe:${v.id}`, msg: `${v.help} (${v.impact})`,
+              sel: v.nodes[0] || null, box: null, crop: null, width: Math.max(...widths),
+            });
+          }
+        } catch { reasons.push("axe run failed"); }
       }
 
       if (navFailed) { status = "FAIL"; reasons.push("navigation failed (" + (nav.out.match(/ERR_[A-Z_]+/)?.[0] || "see detail") + ")"); }
