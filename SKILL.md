@@ -169,11 +169,16 @@ restate passing detail. See the report template at the end.
 {
   "baseUrl": "http://localhost:3000",
   "session": "fe-verify",
+  "rootDir": ".",
+  "widths": [375, 1440],
+  "viewportHeight": 900,
   "settleMs": 800,
   "apiFilter": "/api/",
   "checkWarnings": false,
+  "occlusion": false,
   "axe": false,
   "outDir": ".frontend-verify",
+  "mutePath": null,
   "routes": [
     {
       "path": "/",
@@ -208,6 +213,23 @@ Field notes:
   request log focused on your own calls.
 - `checkWarnings`: set true to surface console warnings as WARN. Off by default
   so warning noise does not bury real failures.
+- `rootDir`: the target repo's root. Used to auto-discover routes (see
+  `routes: "auto"` below) and to resolve `axe-core` from that repo's
+  `node_modules`. Defaults to the current working directory.
+- `routes`: instead of an array, set this to the string `"auto"` to walk a
+  Next.js app-router tree under `rootDir` (`app/` or `src/app/`) and derive
+  the route list from `page.*` files. Route groups like `(marketing)` are
+  stripped; dynamic segments (`[slug]`) are skipped and reported as skipped
+  rather than silently dropped, since auto-discovery cannot guess a real
+  param value for them.
+- `widths`: array of viewport widths in px to probe at. Defaults to `[1440]`.
+  Each defect is tagged with the width it was caught at, so the same element
+  failing at two widths is two findings, not one.
+- `viewportHeight`: height in px used for every resize. Defaults to `900`.
+- `occlusion`: set true to also flag interactive controls whose centre point
+  is covered by a different element. Off by default — sticky headers and
+  custom dropdowns are the expected false-positive source, so treat it as
+  unproven and review its findings by eye.
 - `axe`: set true to also run axe-core's WCAG ruleset (needs `axe-core`
   installed in the target repo — resolved from `rootDir`'s `node_modules`).
   Off by default: it costs about 70 seconds per route on Windows, because
@@ -215,6 +237,25 @@ Field notes:
   route to stay under the cmd.exe command-line limit. When off, or when
   `axe-core` cannot be resolved, the run prints one line and continues —
   it never fails the run.
+- `mutePath`: path to the mute file. Defaults to `<outDir>/muted.json`.
+
+## Report page
+
+`verify-routes.mjs` writes JSON; it does not render anything on its own. To
+see the findings as evidence cards (crop image first and large, then the
+rule, then one short line) instead of reading `report.json` by hand, run:
+
+```
+node <skill-path>/scripts/report-server.mjs <outDir> [<outDir> ...]
+```
+
+Then open `http://localhost:7788`. Pass one `outDir` per repo to see several
+projects on the same page. "new since last run only" is checked by default,
+so a recurring check does not get buried under everything it already found
+last time. Copy fix prompt copies a ready-to-paste instruction for fixing
+that one finding; Mute hides a finding (it reappears if the underlying page
+changes, since the fingerprint used to remember a mute excludes the message
+text on purpose).
 
 ## Auth protected routes
 
