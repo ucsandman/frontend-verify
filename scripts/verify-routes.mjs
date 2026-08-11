@@ -41,7 +41,8 @@
 
 import { execFileSync, execSync } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const isWin = process.platform === "win32";
 const CLI_OVERRIDE = (process.env.FE_VERIFY_CLI || "").trim(); // e.g. "npx --no-install playwright-cli"
@@ -90,7 +91,7 @@ function slug(p) {
   return s || "root";
 }
 
-function main() {
+async function main() {
   const cfgPath = process.argv[2];
   if (!cfgPath) { console.error("usage: node verify-routes.mjs <config.json>"); process.exit(2); }
 
@@ -103,8 +104,26 @@ function main() {
   const session = cfg.session || "fe-verify";
   const settleMs = Number.isFinite(cfg.settleMs) ? cfg.settleMs : 800;
   const outDir = cfg.outDir || ".frontend-verify";
-  const routes = Array.isArray(cfg.routes) ? cfg.routes : [];
-  if (!routes.length) { console.error("config.routes is empty"); process.exit(2); }
+  let routes = [];
+  let skippedRoutes = [];
+  if (cfg.routes === "auto") {
+    const { routes: found, skipped } = await import("./routes-discover.mjs")
+      .then((m) => m.discoverRoutes(cfg.rootDir || process.cwd()));
+    routes = found.map((p) => ({ path: p }));
+    skippedRoutes = skipped;
+  } else {
+    routes = Array.isArray(cfg.routes) ? cfg.routes : [];
+  }
+  if (!routes.length) { console.error("config.routes is empty (and auto-discovery found nothing)"); process.exit(2); }
+
+  const widths = Array.isArray(cfg.widths) && cfg.widths.length ? cfg.widths : [1440];
+  const occlusion = cfg.occlusion === true;
+  // Flatten to one line: a `//` comment inside a multi-line eval arg swallows the rest of
+  // its line once the string crosses the shell, including the IIFE's closing token, which
+  // turns every probe run into "SyntaxError: Unexpected token ')'" instead of a result.
+  // Same fix tests/helpers.mjs already applies for the identical reason.
+  const PROBE_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "probe.js"), "utf8")
+    .split("\n").join(" ").replace(/\s+/g, " ").trim();
 
   const S = `-s=${session}`;
   mkdirSync(outDir, { recursive: true });
@@ -185,6 +204,23 @@ function main() {
       // Decide status.
       let status = "PASS";
       const reasons = [];
+
+      // Defect probe, once per width. resize is cheap; the browser stays warm.
+      const findings = [];
+      for (const w of widths) {
+        cli([S, "resize", String(w), String(cfg.viewportHeight || 900)]);
+        sleep(250); // let responsive layout settle before measuring geometry
+        if (occlusion) cli([S, "--raw", "eval", "window.__FV_OCCLUSION = true"]);
+        const raw = cli([S, "--raw", "eval", PROBE_SRC]).out;
+        let probed = null;
+        try { probed = JSON.parse(raw); } catch { /* probe failed on this width */ }
+        if (probed && Array.isArray(probed.findings)) {
+          for (const f of probed.findings) findings.push({ ...f, width: w });
+        } else {
+          reasons.push(`probe failed at width ${w}`);
+        }
+      }
+
       if (navFailed) { status = "FAIL"; reasons.push("navigation failed (" + (nav.out.match(/ERR_[A-Z_]+/)?.[0] || "see detail") + ")"); }
       if (jsErrors.length) { status = "FAIL"; reasons.push(`${jsErrors.length} JS console error(s)`); }
       if (netFailures.length) { status = "FAIL"; reasons.push(`${netFailures.length} request failure(s)`); }
@@ -192,6 +228,7 @@ function main() {
       if (forbiddenText.length) { status = "FAIL"; reasons.push(`forbidden text present: ${forbiddenText.map((t) => JSON.stringify(t)).join(", ")}`); }
       if (status === "PASS" && r.canvas) { status = "WARN"; reasons.push("canvas route: accessibility tree is blind, screenshot or eval app state if the visual matters"); }
       if (status === "PASS" && cfg.checkWarnings && warnings.length) { status = "WARN"; reasons.push(`${warnings.length} console warning(s)`); }
+      if (findings.length && status === "PASS") { status = "WARN"; reasons.push(`${findings.length} visual finding(s)`); }
 
       // Write full detail to disk. The agent reads these only for flagged routes.
       const detail = {
@@ -201,22 +238,28 @@ function main() {
         warnings: warnings.length ? warnings : "(none)",
         resourceErrors: resourceErrors.length ? resourceErrors : "(none)",
         navOk: !navFailed,
+        findings,
       };
       writeFileSync(join(dir, "detail.json"), JSON.stringify(detail, null, 2));
       if (consoleText) writeFileSync(join(dir, "console.txt"), consoleText);
       if (requestsText) writeFileSync(join(dir, "requests.txt"), requestsText);
 
-      results.push({ path, status, reasons, jsErr: jsErrors.length, netFail: netFailures.length });
+      results.push({ path, status, reasons, jsErr: jsErrors.length, netFail: netFailures.length, findings });
     }
   } finally {
     cli([S, "close"]); // always release the browser
   }
 
-  writeFileSync(join(outDir, "report.json"), JSON.stringify({ baseUrl, when: new Date().toISOString(), results }, null, 2));
+  const coverage = { tested: results.length, skipped: skippedRoutes.length, total: results.length + skippedRoutes.length };
+  writeFileSync(join(outDir, "report.json"), JSON.stringify({
+    baseUrl, when: new Date().toISOString(), widths,
+    state: cfg.stateFile ? "warm" : "cold",
+    coverage, skippedRoutes, results,
+  }, null, 2));
 
   // Compact summary to stdout. This is the only thing the agent needs to read first.
   const pad = Math.min(40, Math.max(12, ...results.map((r) => r.path.length)) + 2);
-  console.log(`\nFRONTEND VERIFY  base=${baseUrl}  routes=${results.length}\n`);
+  console.log(`\nFRONTEND VERIFY  base=${baseUrl}  routes=${results.length}/${coverage.total}  widths=${widths.join(",")}\n`);
   for (const r of results) {
     const extra = r.reasons.length ? "  " + r.reasons.join("; ") : "  console:0  net-fail:0";
     console.log(`[${r.status}] ${r.path.padEnd(pad)}${extra}`);
@@ -225,9 +268,12 @@ function main() {
   const warns = results.filter((r) => r.status === "WARN").length;
   const pass = results.filter((r) => r.status === "PASS").length;
   console.log(`\n${fails} fail, ${warns} warn, ${pass} pass.  Details: ${outDir}/<route>/detail.json   Report: ${join(outDir, "report.json")}`);
+  if (skippedRoutes.length) {
+    console.log(`${skippedRoutes.length} route(s) skipped: ${skippedRoutes.slice(0, 5).map((s) => s.path).join(", ")}${skippedRoutes.length > 5 ? " ..." : ""}`);
+  }
   if (fails > 0) console.log("Open detail.json for any FAIL route to see the exact errors and request log.");
 
   process.exit(fails > 0 ? 1 : 0);
 }
 
-main();
+main().catch((e) => { console.error(e); process.exit(2); });
