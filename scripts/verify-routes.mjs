@@ -216,6 +216,15 @@ async function main() {
         try { probed = JSON.parse(raw); } catch { /* probe failed on this width */ }
         if (probed && Array.isArray(probed.findings)) {
           for (const f of probed.findings) findings.push({ ...f, width: w });
+          // The probe stamped data-rv on every flagged element, so the selector is unique.
+          // Crop immediately, same page/width the probe just ran on — any navigation or
+          // resize before this point invalidates the stamp.
+          for (const f of probed.findings) {
+            const name = `${slug(path)}-w${w}-rv${f.rv}.png`;
+            const shot = cli([S, "screenshot", `[data-rv="${f.rv}"]`, "--filename", join(dir, name)]);
+            const rec = findings.find((x) => x.rv === f.rv && x.width === w);
+            if (rec) rec.crop = shot.ok ? join(slug(path), name) : null;
+          }
         } else {
           reasons.push(`probe failed at width ${w}`);
         }
