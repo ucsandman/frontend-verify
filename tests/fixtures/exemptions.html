@@ -1,0 +1,12 @@
+<!doctype html><meta charset=utf-8><title>exemptions</title>
+<style>
+  body{margin:0;font:16px/22px system-ui;background:#fff;color:#111}
+  .low{color:#bbb}
+  nav a{margin-right:40px;color:#111;text-decoration:none}
+  #icon-link{display:inline-block;width:16px;height:16px;background:#333}
+</style>
+<p>Real content <span id="real-low" class="low">low contrast text</span> here.</p>
+<p>Dots <span id="deco" class="low" aria-hidden="true">&middot;</span> here.</p>
+<div aria-hidden="true"><span id="deco-child" class="low">inside a hidden subtree</span></div>
+<nav><a id="nav1" href="#">Docs</a><a id="nav2" href="#">Pricing</a><a id="nav3" href="#">Guides</a></nav>
+<a id="icon-link" href="#" aria-label="Home"></a>

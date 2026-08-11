@@ -43,11 +43,15 @@ const lum=c=>{const a=c.slice(0,3).map(v=>{v/=255;return v<=.03928?v/12.92:Math.
 const ratio=(f,b)=>{const L1=lum(f),L2=lum(b);return (Math.max(L1,L2)+.05)/(Math.min(L1,L2)+.05)};
 const bgOf=el=>{let n=el;while(n&&n.nodeType===1){const c=px(getComputedStyle(n).backgroundColor);if(c&&c[3]>200)return c;n=n.parentElement}return [255,255,255,255]};
 const rgb=c=>'rgb('+c[0]+','+c[1]+','+c[2]+')';
+/* aria-hidden marks decoration. WCAG 1.4.3 exempts incidental content, and a separator
+   like <span aria-hidden="true">&middot;</span> is the standard way to write it. */
+const ariaHidden=e=>{let n=e;while(n&&n.nodeType===1){if(n.getAttribute('aria-hidden')==='true')return true;n=n.parentElement}return false};
 
 /* contrast: real foreground text colour vs resolved ancestor background, via canvas round-trip. */
 for(const e of all){
   const hasText=[...e.childNodes].some(n=>n.nodeType===3&&n.textContent.trim());
   if(!hasText)continue;
+  if(ariaHidden(e))continue;
   const s=getComputedStyle(e);
   const fg=px(s.color);
   if(!fg||fg[3]<200)continue;
@@ -59,17 +63,21 @@ for(const e of all){
 }
 
 const INTER='a[href],button,input,select,textarea,[role=button],[role=link],[onclick]';
-/* An anchor sitting inside a sentence is exempt from the WCAG 2.2 target-size rule. */
-const inlineLink=e=>{
+/* WCAG 2.2 target-size exempts a target whose size is "constrained by the line-height of
+   non-target text". That is any text link: its box is the text line, not a chosen size.
+   Measured on DashClaw: 145/145 tap-target findings were such links, 99 from one nav class.
+   A link with no text has no line to constrain it, so it stays a real target. */
+const textLink=e=>{
   if(e.tagName!=='A')return false;
-  const p=e.parentElement;if(!p)return false;
-  if(getComputedStyle(e).display!=='inline')return false;
-  return [...p.childNodes].some(n=>n.nodeType===3&&n.textContent.trim());
+  if(!(e.textContent||'').trim())return false;
+  const s=getComputedStyle(e);
+  const lh=parseFloat(s.lineHeight)||parseFloat(s.fontSize)*1.2;
+  return e.getBoundingClientRect().height<=lh+2;
 };
 const controls=all.filter(e=>e.matches(INTER));
 
 for(const e of controls){
-  if(inlineLink(e))continue;
+  if(textLink(e))continue;
   const r=e.getBoundingClientRect();
   if(r.width<24||r.height<24)
     add('tap-target',e,'tap target '+Math.round(r.width)+'x'+Math.round(r.height)+' is under 24x24');
