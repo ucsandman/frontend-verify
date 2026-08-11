@@ -133,13 +133,19 @@ async function main() {
   const PROBE_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "probe.js"), "utf8")
     .split("\n").join(" ").replace(/\s+/g, " ").trim();
 
-  // axe-core is optional: resolved from the TARGET repo's node_modules, not this skill's.
-  // Absent is normal (most repos verified here never installed it) so skip quietly, never fail.
+  // axe-core is opt-in (config "axe": true), default OFF. See the MEASURED COST comment
+  // above the injection loop below for why. Resolved from the TARGET repo's node_modules,
+  // not this skill's. Absent is normal (most repos verified here never installed it) so
+  // skip quietly, never fail.
   let AXE_SRC = null;
-  try {
-    AXE_SRC = readFileSync(join(cfg.rootDir || process.cwd(), "node_modules", "axe-core", "axe.min.js"), "utf8");
-  } catch {
-    console.log("axe-core not found in the target repo. Skipping accessibility rules. Fix: npm i -D axe-core");
+  if (cfg.axe === true) {
+    try {
+      AXE_SRC = readFileSync(join(cfg.rootDir || process.cwd(), "node_modules", "axe-core", "axe.min.js"), "utf8");
+    } catch {
+      console.log("axe-core not found in the target repo. Skipping accessibility rules. Fix: npm i -D axe-core");
+    }
+  } else {
+    console.log('axe: skipped (set "axe": true to enable; costs about 70s per route on Windows)');
   }
 
   // axe.min.js is ~560KB, far past the ~8000 char Windows cmd.exe command-line limit a
@@ -261,6 +267,17 @@ async function main() {
 
       // axe-core, once per route at the widest viewport. wcag22aa is REQUIRED in the tag
       // list below: without it target-size (WCAG 2.2) never runs, even with axe loaded.
+      //
+      // MEASURED COST (2026-08-11, Windows): +72s per route (17s -> 89s measured on one
+      // route), roughly an hour of pure overhead across DashClaw's 49 routes. Root cause:
+      // axe.min.js is 560KB, base64-encodes to ~747KB, and cmd.exe's ~8000-char command-line
+      // limit forces that through ~110 chunked eval round-trips below -- once per route,
+      // because each `goto` reloads the page and the chunks cannot survive that. On the
+      // route this was measured against, axe returned exactly one finding
+      // (axe:color-contrast) that our own `contrast` rule already reports, and target-size
+      // (its main unique value) did not fire. That is why axe defaults OFF (config
+      // "axe": true to enable, gated above) -- do not collapse the chunk loop back into one
+      // eval call to "optimise" it, it will fail with "The command line is too long."
       if (AXE_SRC) {
         cli([S, "resize", String(Math.max(...widths)), String(cfg.viewportHeight || 900)]);
         // Send axe.min.js to the page in AXE_CHUNK-sized base64 pieces (each call is one

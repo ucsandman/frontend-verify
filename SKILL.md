@@ -172,6 +172,7 @@ restate passing detail. See the report template at the end.
   "settleMs": 800,
   "apiFilter": "/api/",
   "checkWarnings": false,
+  "axe": false,
   "outDir": ".frontend-verify",
   "routes": [
     {
@@ -207,6 +208,13 @@ Field notes:
   request log focused on your own calls.
 - `checkWarnings`: set true to surface console warnings as WARN. Off by default
   so warning noise does not bury real failures.
+- `axe`: set true to also run axe-core's WCAG ruleset (needs `axe-core`
+  installed in the target repo — resolved from `rootDir`'s `node_modules`).
+  Off by default: it costs about 70 seconds per route on Windows, because
+  axe.min.js (560KB) has to reach the page as ~110 chunked eval calls per
+  route to stay under the cmd.exe command-line limit. When off, or when
+  `axe-core` cannot be resolved, the run prints one line and continues —
+  it never fails the run.
 
 ## Auth protected routes
 
