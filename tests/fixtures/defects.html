@@ -1,0 +1,16 @@
+<!doctype html><meta charset=utf-8><title>defects</title>
+<style>
+  :root{ --muted: lab(98.26 0 0); --ink: oklch(0.21 0.006 285.9); }
+  body{margin:0;font:16px system-ui;background:#fff;color:var(--ink)}
+  .muted{color:var(--muted);background:#fff}
+  .wide{width:1600px;height:8px;background:#eee}
+  .clip{width:80px;overflow:hidden;white-space:nowrap}
+  .tiny{width:14px;height:14px}
+</style>
+<p class="ok">readable text</p>
+<p class="muted">unreadable muted text</p>
+<div class="wide"></div>
+<div class="clip">this text is definitely clipped by overflow hidden</div>
+<button class="tiny">x</button>
+<img src="/does-not-exist.png" alt="broken">
+<button></button>
