@@ -2,7 +2,10 @@
 const F=[];
 const sel=e=>{if(!e||!e.tagName)return null;if(e.id)return '#'+e.id;let s=e.tagName.toLowerCase();if(e.className&&typeof e.className==='string'){const c=e.className.trim().split(/\s+/).slice(0,2).join('.');if(c)s+='.'+c}return s};
 const add=(rule,el,msg,extra)=>{const r=el.getBoundingClientRect&&el.getBoundingClientRect();const rv=F.length;try{el.setAttribute('data-rv',String(rv))}catch(e){}F.push(Object.assign({rv,rule,msg,sel:sel(el),box:r?[Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)]:null},extra||{}))};
-const vis=el=>{const s=getComputedStyle(el);if(s.display==='none'||s.visibility==='hidden'||+s.opacity===0)return false;const r=el.getBoundingClientRect();return r.width>0&&r.height>0};
+/* The sr-only pattern: a 1x1 box clipped to nothing, present for screen readers only.
+   A sighted user never sees it, so no visual rule may fire on it. */
+const srOnly=s=>s.clip==='rect(0px, 0px, 0px, 0px)'||/inset\(\s*50%/.test(s.clipPath||'');
+const vis=el=>{const s=getComputedStyle(el);if(s.display==='none'||s.visibility==='hidden'||+s.opacity===0)return false;if(srOnly(s))return false;const r=el.getBoundingClientRect();return r.width>0&&r.height>0};
 const all=[...document.querySelectorAll('body *')].filter(vis);
 
 /* h-overflow: the page scrolls sideways. Report the right-most offender. */
@@ -44,7 +47,7 @@ const ratio=(f,b)=>{const L1=lum(f),L2=lum(b);return (Math.max(L1,L2)+.05)/(Math
 const bgOf=el=>{let n=el;while(n&&n.nodeType===1){const c=px(getComputedStyle(n).backgroundColor);if(c&&c[3]>200)return c;n=n.parentElement}return [255,255,255,255]};
 const rgb=c=>'rgb('+c[0]+','+c[1]+','+c[2]+')';
 /* aria-hidden marks decoration. WCAG 1.4.3 exempts incidental content, and a separator
-   like <span aria-hidden="true">&middot;</span> is the standard way to write it. */
+   like a middot span marked aria-hidden is the standard way to write it. */
 const ariaHidden=e=>{let n=e;while(n&&n.nodeType===1){if(n.getAttribute('aria-hidden')==='true')return true;n=n.parentElement}return false};
 
 /* contrast: real foreground text colour vs resolved ancestor background, via canvas round-trip. */
@@ -63,8 +66,8 @@ for(const e of all){
 }
 
 const INTER='a[href],button,input,select,textarea,[role=button],[role=link],[onclick]';
-/* WCAG 2.2 target-size exempts a target whose size is "constrained by the line-height of
-   non-target text". That is any text link: its box is the text line, not a chosen size.
+/* WCAG 2.2 target-size exempts a target whose size is constrained by the line-height of
+   non-target text. That is any text link: its box is the text line, not a chosen size.
    Measured on DashClaw: 145/145 tap-target findings were such links, 99 from one nav class.
    A link with no text has no line to constrain it, so it stays a real target. */
 const textLink=e=>{
@@ -87,6 +90,11 @@ for(const e of controls){
   const name=(e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim()
     ||(e.querySelector('img[alt]')&&e.querySelector('img[alt]').alt||'')
     ||(e.getAttribute('aria-labelledby')?'x':'')
+    /* A label[for=id] and a wrapping label both name a control. Missing these reported
+       every correctly labelled input as unnamed. Never use a double quote in this file:
+       the whole source is passed as one double-quoted shell argument. */
+    ||(e.id&&[...document.querySelectorAll('label[for]')].some(l=>l.getAttribute('for')===e.id)?'x':'')
+    ||(e.closest&&e.closest('label')?'x':'')
     ||(e.value||'');
   if(!name) add('no-accessible-name',e,e.tagName.toLowerCase()+' has no accessible name');
 }

@@ -4,9 +4,12 @@
   .low{color:#bbb}
   nav a{margin-right:40px;color:#111;text-decoration:none}
   #icon-link{display:inline-block;width:16px;height:16px;background:#333}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border-width:0}
+  #pw{height:32px;width:200px}
 </style>
 <p>Real content <span id="real-low" class="low">low contrast text</span> here.</p>
 <p>Dots <span id="deco" class="low" aria-hidden="true">&middot;</span> here.</p>
 <div aria-hidden="true"><span id="deco-child" class="low">inside a hidden subtree</span></div>
 <nav><a id="nav1" href="#">Docs</a><a id="nav2" href="#">Pricing</a><a id="nav3" href="#">Guides</a></nav>
 <a id="icon-link" href="#" aria-label="Home"></a>
+<form><label id="sr-label" for="pw" class="sr-only">Admin password</label><input id="pw" type="password"></form>

@@ -48,3 +48,20 @@ test("STILL flags an icon-only link with no text to constrain it", async () => {
     assert.deepEqual(sels, ["#icon-link"], "exactly the 16x16 icon link");
   });
 });
+
+/* Measured on DashClaw: all 12 clipped-text findings were label.sr-only, and all 12
+   no-accessible-name findings were the one input that sr-only label names. Both come from
+   app/login/LocalPasswordForm.tsx, which is correct markup. */
+
+test("SKIPS screen-reader-only text, which is 1x1 and clipped by design", async () => {
+  await withFixture("exemptions.html", 1440, 900, (r) => {
+    assert.deepEqual(rule(r, "clipped-text"), [], "sr-only is hidden on purpose");
+  });
+});
+
+test("COUNTS a label[for] as an accessible name", async () => {
+  await withFixture("exemptions.html", 1440, 900, (r) => {
+    const sels = rule(r, "no-accessible-name").map((f) => f.sel);
+    assert.ok(!sels.includes("#pw"), "an input named by <label for> is not unnamed");
+  });
+});
