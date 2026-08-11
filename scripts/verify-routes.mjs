@@ -319,6 +319,19 @@ async function main() {
     cli([S, "close"]); // always release the browser
   }
 
+  // Read the PREVIOUS report and the mute list before report.json gets overwritten below —
+  // read-then-write in the other order means every finding looks "not new", every time.
+  const { fingerprint, loadMutes, markNew } = await import("./mute-store.mjs");
+  const muteFile = cfg.mutePath || join(outDir, "muted.json");
+  const muted = loadMutes(muteFile);
+  let prev = new Set();
+  try { prev = new Set((JSON.parse(readFileSync(join(outDir, "report.json"), "utf8")).results || [])
+    .flatMap((r) => r.findings || []).map(fingerprint)); } catch { /* first run */ }
+
+  for (const r of results) {
+    r.findings = markNew(r.findings || [], prev).filter((f) => !muted.has(fingerprint(f)));
+  }
+
   const coverage = { tested: results.length, skipped: skippedRoutes.length, total: results.length + skippedRoutes.length };
   writeFileSync(join(outDir, "report.json"), JSON.stringify({
     baseUrl, when: new Date().toISOString(), widths,
