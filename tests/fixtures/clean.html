@@ -10,3 +10,11 @@
 <div class="row"><span>Label</span><span>9</span></div>
 <p class="left">A sentence containing <a href="/somewhere">an inline link</a> inside it.</p>
 <button aria-label="Save">Save</button>
+<style>
+  .crop{width:60px;height:40px;overflow:hidden}
+  .crop img{width:200px;height:40px;display:block}
+</style>
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" alt="a real loaded pixel" width="24" height="24">
+<img alt="lazy placeholder with no src yet" loading="lazy" width="24" height="24">
+<figure class="crop"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" alt="wide image cropped by its container"></figure>
+<p class="left">A caption sitting next to the cropped figure above.</p>

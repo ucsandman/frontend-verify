@@ -14,14 +14,19 @@ if(document.documentElement.scrollWidth>document.documentElement.clientWidth+1){
 }
 
 /* broken-image: finished loading with no pixels. */
-for(const img of document.querySelectorAll('img'))
+for(const img of document.querySelectorAll('img')){
+  const src=(img.getAttribute('src')||'').trim();
+  /* no src yet: a placeholder or lazy-load stub, not a broken image */
+  if(!src)continue;
   if(img.complete&&img.naturalWidth===0)
-    add('broken-image',img,'img failed to load: '+img.getAttribute('src'));
+    add('broken-image',img,'img failed to load: '+src);
+}
 
 /* clipped-text: real text cut off, and the author did not opt into an ellipsis. */
 for(const e of all){
   const s=getComputedStyle(e);
-  if((s.overflow==='hidden'||s.overflowX==='hidden')&&e.scrollWidth>e.clientWidth+1&&e.clientWidth>0&&s.textOverflow!=='ellipsis'&&e.textContent.trim())
+  const ownText=[...e.childNodes].some(n=>n.nodeType===3&&n.textContent.trim());
+  if((s.overflow==='hidden'||s.overflowX==='hidden')&&e.scrollWidth>e.clientWidth+1&&e.clientWidth>0&&s.textOverflow!=='ellipsis'&&ownText)
     add('clipped-text',e,'text cut off: scrollWidth '+e.scrollWidth+' > clientWidth '+e.clientWidth);
 }
 
