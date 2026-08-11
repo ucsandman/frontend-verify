@@ -91,6 +91,14 @@ function slug(p) {
   return s || "root";
 }
 
+// Outline the flagged element in pink, then walk up from it until an ancestor is at
+// least 240x48 (capped at 4 hops) and stamp that ancestor with data-rvctx. The crop
+// screenshots the ancestor, not the bare element, so a 9px span is not the whole photo.
+const ctxExpr = (rv) => `(()=>{const el=document.querySelector('[data-rv="${rv}"]');if(!el)return 0;el.style.outline='2px solid #ff0055';el.style.outlineOffset='1px';let n=el,hops=0;while(n.parentElement&&hops<4){const r=n.getBoundingClientRect();if(r.width>=240&&r.height>=48)break;n=n.parentElement;hops++}n.setAttribute('data-rvctx','${rv}');return 1})()`;
+
+// Undo the outline and the context stamp so the next finding's crop is not polluted.
+const clearExpr = (rv) => `(()=>{const el=document.querySelector('[data-rv="${rv}"]');if(el){el.style.outline='';el.style.outlineOffset=''}const c=document.querySelector('[data-rvctx="${rv}"]');if(c)c.removeAttribute('data-rvctx');return 1})()`;
+
 async function main() {
   const cfgPath = process.argv[2];
   if (!cfgPath) { console.error("usage: node verify-routes.mjs <config.json>"); process.exit(2); }
@@ -221,7 +229,9 @@ async function main() {
           // resize before this point invalidates the stamp.
           for (const f of probed.findings) {
             const name = `${slug(path)}-w${w}-rv${f.rv}.png`;
-            const shot = cli([S, "screenshot", `[data-rv="${f.rv}"]`, "--filename", join(dir, name)]);
+            cli([S, "--raw", "eval", ctxExpr(f.rv)]);
+            const shot = cli([S, "screenshot", `[data-rvctx="${f.rv}"]`, "--filename", join(dir, name)]);
+            cli([S, "--raw", "eval", clearExpr(f.rv)]);
             const rec = findings.find((x) => x.rv === f.rv && x.width === w);
             if (rec) rec.crop = shot.ok ? join(slug(path), name) : null;
           }
