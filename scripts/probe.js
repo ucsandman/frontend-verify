@@ -58,5 +58,43 @@ for(const e of all){
   if(cr<need) add('contrast',e,'contrast '+cr.toFixed(2)+':1 is below '+need+':1',{fg:rgb(fg),bg:rgb(bg),ratio:+cr.toFixed(2)});
 }
 
+const INTER='a[href],button,input,select,textarea,[role=button],[role=link],[onclick]';
+/* An anchor sitting inside a sentence is exempt from the WCAG 2.2 target-size rule. */
+const inlineLink=e=>{
+  if(e.tagName!=='A')return false;
+  const p=e.parentElement;if(!p)return false;
+  if(getComputedStyle(e).display!=='inline')return false;
+  return [...p.childNodes].some(n=>n.nodeType===3&&n.textContent.trim());
+};
+const controls=all.filter(e=>e.matches(INTER));
+
+for(const e of controls){
+  if(inlineLink(e))continue;
+  const r=e.getBoundingClientRect();
+  if(r.width<24||r.height<24)
+    add('tap-target',e,'tap target '+Math.round(r.width)+'x'+Math.round(r.height)+' is under 24x24');
+}
+
+for(const e of controls){
+  const name=(e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent||'').trim()
+    ||(e.querySelector('img[alt]')&&e.querySelector('img[alt]').alt||'')
+    ||(e.getAttribute('aria-labelledby')?'x':'')
+    ||(e.value||'');
+  if(!name) add('no-accessible-name',e,e.tagName.toLowerCase()+' has no accessible name');
+}
+
+/* UNPROVEN. Sticky headers and custom dropdowns are the expected false-positive source. */
+/* Enabled only when window.__FV_OCCLUSION === true, set by verify-routes.mjs. */
+if(typeof window!=='undefined'&&window.__FV_OCCLUSION===true){
+  for(const e of controls){
+    const r=e.getBoundingClientRect();
+    const cx=r.left+r.width/2,cy=r.top+r.height/2;
+    if(cx<0||cy<0||cx>innerWidth||cy>innerHeight)continue;
+    const top=document.elementFromPoint(cx,cy);
+    if(top&&top!==e&&!e.contains(top)&&!top.contains(e))
+      add('occluded-control',e,'control is covered by '+sel(top)+' at its centre point');
+  }
+}
+
 return {viewport:[innerWidth,innerHeight],scanned:all.length,findings:F};
 })()

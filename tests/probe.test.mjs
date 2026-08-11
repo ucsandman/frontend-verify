@@ -60,3 +60,29 @@ test("transparent backgrounds resolve to the ancestor, not a stale pixel", async
     }
   });
 });
+
+test("flags a tap target under 24x24", async () => {
+  await withFixture("defects.html", 1440, 900, (r) => {
+    const hits = r.findings.filter((f) => f.rule === "tap-target");
+    assert.ok(hits.some((f) => f.sel === "button.tiny"), "the 14x14 button");
+  });
+});
+
+test("EXEMPTS inline links from tap-target (WCAG 2.2)", async () => {
+  // Measured false positive on live callclaw: a 118x18 inline link.
+  await withFixture("clean.html", 1440, 900, (r) => {
+    assert.equal(r.findings.filter((f) => f.rule === "tap-target").length, 0);
+  });
+});
+
+test("flags a control with no accessible name", async () => {
+  await withFixture("defects.html", 1440, 900, (r) => {
+    assert.equal(r.findings.filter((f) => f.rule === "no-accessible-name").length, 1);
+  });
+});
+
+test("occluded-control is OFF unless opted in", async () => {
+  await withFixture("clean.html", 1440, 900, (r) => {
+    assert.equal(r.findings.filter((f) => f.rule === "occluded-control").length, 0);
+  });
+});
