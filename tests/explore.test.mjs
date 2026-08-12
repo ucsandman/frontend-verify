@@ -93,7 +93,7 @@ test("zero candidates does not throw", async () => {
     now: () => 0,
   };
   const out = await exploreWidth(deps, { budgetMs: 10000, mutate: [], skip: [] });
-  assert.deepEqual(out, { states: [], findings: [], noops: [] });
+  assert.deepEqual(out, { states: [], findings: [], noops: [], failed: [] });
 });
 
 /* A candidate's element can vanish between the readActions() that found it and the click()
@@ -164,4 +164,38 @@ test("a second candidate reaching an already-seen signature is not scanned twice
   assert.deepEqual(clicked, ["#a", "#b"], "both candidates are attempted");
   assert.equal(out.states.length, 1, "the second candidate lands on a signature the first already recorded");
   assert.equal(out.findings.length, 1, "only the first candidate's scan result is kept");
+});
+
+test("a form gets an invalid pass and then a valid pass", async () => {
+  const modes = [];
+  const deps = {
+    readActions: async () => ({
+      sig: `S${modes.length}`,
+      candidates: [{ path: "#signup", kind: "form", label: "signup", mutating: false, rank: 4 }],
+    }),
+    reset: async () => {},
+    click: async () => { throw new Error("a form must be filled, never clicked"); },
+    fillForm: async (p, mode) => { modes.push(mode); },
+    scan: async () => [],
+    now: (() => { let t = 0; return () => (t += 100); })(),
+  };
+  await exploreWidth(deps, { budgetMs: 10000, mutate: [], skip: [], invalidPass: true });
+  assert.deepEqual(modes, ["invalid", "valid"], "invalid first, then valid");
+});
+
+test("invalidPass false runs only the valid pass", async () => {
+  const modes = [];
+  const deps = {
+    readActions: async () => ({
+      sig: `S${modes.length}`,
+      candidates: [{ path: "#signup", kind: "form", label: "signup", mutating: false, rank: 4 }],
+    }),
+    reset: async () => {},
+    click: async () => {},
+    fillForm: async (p, mode) => { modes.push(mode); },
+    scan: async () => [],
+    now: (() => { let t = 0; return () => (t += 100); })(),
+  };
+  await exploreWidth(deps, { budgetMs: 10000, mutate: [], skip: [], invalidPass: false });
+  assert.deepEqual(modes, ["valid"]);
 });
