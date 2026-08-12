@@ -134,6 +134,7 @@ test("a danger word split across sibling nodes is still caught", async () => {
     const m = (p) => r.candidates.find((c) => c.path === p);
     assert.equal(m("#fused-select").mutating, true, "adjacent option elements, no whitespace");
     assert.equal(m("#fused-button").mutating, true, "adjacent span elements, no whitespace");
+    assert.equal(m("#fused-label").mutating, true, "danger word fused across nodes in the label");
   });
 });
 
