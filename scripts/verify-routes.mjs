@@ -332,6 +332,7 @@ async function main() {
       const routeStates = [];
       const routeNoops = [];
       const routeFailed = [];
+      let ranFlow = false;
       for (const w of widths) {
         cli([S, "resize", String(w), String(cfg.viewportHeight || 900)]);
         sleep(250); // let responsive layout settle before measuring geometry
@@ -389,6 +390,12 @@ async function main() {
         // hand, so they are not gated by the safety classifier or by budgetMs.
         const steps = (cfg.flows || {})[path];
         if (steps && steps.length) {
+          ranFlow = true;
+          // When explore is off, maybeExplore returned before seeding, so `seen` is empty
+          // and a defect present at BOTH first paint and after the flow would be written
+          // twice -- breaking the documented "reported once" promise, which the docs
+          // explicitly extend to flows.
+          if (!ex.enabled) seedInitial(seen, findings.filter((f) => f.width === w), w);
           cli([S, "goto", url]);
           cli([S, "resize", String(w), String(cfg.viewportHeight || 900)]);
           const fout = await runFlow(
@@ -405,6 +412,12 @@ async function main() {
           findings.push(...dedupeInto(seen, fout.findings, w));
           routeStates.push(...fout.states);
           routeFailed.push(...fout.failed);
+          // Restore first paint. There is only one goto per route and the width loop merely
+          // resizes, so without this the NEXT width's initial probe measures the flow's
+          // final DOM and attributes those findings to first paint with no state label.
+          cli([S, "goto", url]);
+          cli([S, "resize", String(w), String(cfg.viewportHeight || 900)]);
+          sleep(250);
         }
       }
 
@@ -458,8 +471,8 @@ async function main() {
       if (status === "PASS" && r.canvas) { status = "WARN"; reasons.push("canvas route: accessibility tree is blind, screenshot or eval app state if the visual matters"); }
       if (status === "PASS" && cfg.checkWarnings && warnings.length) { status = "WARN"; reasons.push(`${warnings.length} console warning(s)`); }
       if (findings.length && status === "PASS") { status = "WARN"; reasons.push(`${findings.length} visual finding(s)`); }
-      // routeFailed is always [] when explore is off, so this never fires for an opt-out
-      // run. A route where every interaction failed must not print [PASS] with the only
+      // routeFailed is [] unless exploration ran or a flow ran, so this never fires for a
+      // plain opt-out run. A route where every interaction failed must not print [PASS] with the only
       // evidence buried in a detail.json nobody opens for a passing route.
       if (status === "PASS" && routeFailed.length) { status = "WARN"; reasons.push(`${routeFailed.length} interaction(s) failed`); }
 
@@ -474,7 +487,9 @@ async function main() {
         findings,
         // Explore is opt-in: these keys exist only when cfg.explore.enabled is true, so a
         // disabled/absent run writes the exact same detail.json shape as before this feature.
-        ...(ex.enabled ? { states: routeStates, noops: routeNoops, failed: routeFailed } : {}),
+        // Also written when a flow ran, so the WARN below always has recoverable evidence
+        // naming the failed step. Absent entirely for a plain opt-out run.
+        ...(ex.enabled || ranFlow ? { states: routeStates, noops: routeNoops, failed: routeFailed } : {}),
       };
       writeFileSync(join(dir, "detail.json"), JSON.stringify(detail, null, 2));
       if (consoleText) writeFileSync(join(dir, "console.txt"), consoleText);
@@ -483,7 +498,9 @@ async function main() {
       results.push({
         path, status, reasons, jsErr: jsErrors.length, netFail: netFailures.length, findings,
         // Same opt-in-only shape rule as detail.json above.
-        ...(ex.enabled ? { failed: routeFailed.length } : {}),
+        ...(ex.enabled || ranFlow
+          ? { states: routeStates.length, noops: routeNoops.length, failed: routeFailed.length }
+          : {}),
       });
     }
   } finally {

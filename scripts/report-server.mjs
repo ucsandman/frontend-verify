@@ -63,10 +63,14 @@ function render() {
     // Exploration summary. Only rendered when the run actually explored, so an opt-out
     // report is byte-identical to before this feature existed. `failed` is surfaced here
     // because a silently broken driver otherwise looks exactly like a clean empty run.
+    // These are COUNTS in report.json, not arrays -- the arrays live in each route's
+    // detail.json. Treating them as arrays made this whole summary render empty in every
+    // case, which is precisely the silent failure it was added to expose.
+    const n = (v) => (typeof v === "number" ? v : 0);
     const ex = (rep.results || []).reduce((a, r) => ({
-      states: a.states + ((r.states || []).length),
-      noops: a.noops + ((r.noops || []).length),
-      failed: a.failed + ((r.failed || []).length),
+      states: a.states + n(r.states),
+      noops: a.noops + n(r.noops),
+      failed: a.failed + n(r.failed),
     }), { states: 0, noops: 0, failed: 0 });
     const exLine = (ex.states || ex.noops || ex.failed)
       ? `<p class="cov">explored ${ex.states} state(s) &middot; ${ex.noops} interaction(s) changed nothing${ex.failed ? ` &middot; <strong>${ex.failed} failed</strong>` : ""}</p>`
@@ -97,8 +101,6 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:32px 0 4px}
 .msg{margin:4px 0}code{font-size:12px;color:var(--mut);word-break:break-all}
 .state{font-size:12px;margin:2px 0 0;padding:2px 8px;border-radius:999px;display:inline-block;background:var(--acc);color:#fff}
 .also{font-size:12px;color:var(--mut);margin:4px 0 0}
-.noops{margin-top:18px;font-size:13px;color:var(--mut)}
-.noops li{margin:2px 0}
 .actions{display:flex;gap:8px;margin-top:10px}
 button{font:inherit;font-size:13px;padding:5px 10px;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:6px;cursor:pointer}
 button:hover{border-color:var(--acc)}
