@@ -6,8 +6,8 @@ const label = (c) => `${c.kind}:${c.label || c.path}`;
 
 /**
  * Explore one route at one viewport width.
- * @param {{readActions:Function, reset:Function, click:Function, scan:Function, now:Function}} deps
- * @param {{budgetMs:number, mutate:string[], skip:string[]}} opts
+ * @param {{readActions:Function, reset:Function, click:Function, fillForm:Function, scan:Function, now:Function}} deps
+ * @param {{budgetMs:number, mutate:string[], skip:string[], invalidPass?:boolean}} opts
  * @returns {Promise<{states:Array, findings:Array, noops:string[], failed:Array}>}
  */
 export async function exploreWidth(deps, opts) {

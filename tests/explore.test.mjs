@@ -183,6 +183,23 @@ test("a form gets an invalid pass and then a valid pass", async () => {
   assert.deepEqual(modes, ["invalid", "valid"], "invalid first, then valid");
 });
 
+test("a failed interaction is recorded with its path and error", async () => {
+  const deps = {
+    readActions: async () => ({
+      sig: "A",
+      candidates: [{ path: "#gone", kind: "tab", label: "Gone", mutating: false, rank: 1 }],
+    }),
+    reset: async () => {},
+    click: async () => { throw new Error("element not found"); },
+    scan: async () => [],
+    now: (() => { let t = 0; return () => (t += 100); })(),
+  };
+  const out = await exploreWidth(deps, { budgetMs: 10000, mutate: [], skip: [] });
+  assert.equal(out.failed.length, 1, "the failure must be recorded, not swallowed");
+  assert.equal(out.failed[0].path, "#gone");
+  assert.match(out.failed[0].error, /element not found/);
+});
+
 test("invalidPass false runs only the valid pass", async () => {
   const modes = [];
   const deps = {

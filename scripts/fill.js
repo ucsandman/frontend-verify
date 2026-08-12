@@ -38,18 +38,24 @@ let filled=0;
 const fields=root.matches('input,select,textarea')?[root]:[...root.querySelectorAll('input,select,textarea')];
 for(const el of fields){
   if(el.disabled||el.readOnly)continue;
-  const t=(el.getAttribute('type')||'').toLowerCase();
-  if(t==='submit'||t==='button'||t==='file'||t==='hidden')continue;
+  const type=(el.getAttribute('type')||'').toLowerCase();
+  if(type==='submit'||type==='button'||type==='file'||type==='hidden')continue;
   if(el.tagName==='SELECT'){
     if(MODE==='invalid')continue;
     if(el.options.length>1)el.selectedIndex=1;else if(el.options.length)el.selectedIndex=0;
     el.dispatchEvent(new Event('change',{bubbles:true}));
     filled++;continue;
   }
-  if(t==='checkbox'||t==='radio'){
+  if(type==='checkbox'||type==='radio'){
     if(MODE==='invalid')continue;
-    el.checked=true;
-    el.dispatchEvent(new Event('change',{bubbles:true}));
+    /* React gates checkbox and radio change-detection on the native CLICK, never on a
+       change event, and plain assignment keeps its value tracker in sync so nothing
+       registers. Setting checked and dispatching change is therefore invisible to a
+       React-controlled checkbox: the same silent no-op the native setter exists to avoid
+       for text inputs. A real click is the actual user action and works everywhere.
+       This is the only click call in the file. It happens ONLY here, on a checkbox or
+       radio, and it can never reach a button or anything that would send the form. */
+    if(!el.checked)el.click();
     filled++;continue;
   }
   setNative(el,valueFor(el));

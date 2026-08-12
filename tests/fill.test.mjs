@@ -25,6 +25,17 @@ test("fill.js uses the native value setter, not plain assignment", () => {
   assert.ok(SRC.includes("bubbles"), "must dispatch a bubbling input event");
 });
 
+test("fill.js clicks only checkboxes and radios, never anything submittable", () => {
+  /* A click is the only way React sees a checkbox change, but a click on the wrong
+     element submits the form. Pin the blast radius. */
+  const clicks = SRC.match(/\.click\(/g) || [];
+  assert.equal(clicks.length, 1, "exactly one click call may exist");
+  const guarded = /if\(!el\.checked\)el\.click\(\);/.test(SRC.replace(/\s+/g, ""));
+  assert.ok(guarded, "the click must be guarded and sit in the checkbox/radio branch");
+  assert.ok(!/submit|requestSubmit/.test(SRC.replace(/type===.submit./g, "")),
+    "no submit call anywhere");
+});
+
 test("fill.js has both substitution tokens", () => {
   assert.ok(SRC.includes("__PATH__"), "explore.mjs substitutes the form path");
   assert.ok(SRC.includes("__MODE__"), "explore.mjs substitutes invalid or valid");
