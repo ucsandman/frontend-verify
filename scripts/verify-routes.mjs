@@ -121,6 +121,47 @@ export function dedupeInto(seen, findings, width) {
   return fresh;
 }
 
+/**
+ * Tag this width's raw findings state:"initial" IN PLACE (never a copy) and seed `seen`
+ * with those same object references, so a later dedupeInto call's alsoIn mutation lands on
+ * the exact objects that flow into detail.json / report.json. A spread copy here would
+ * make the feature a silent no-op: the mutation would land on a throwaway object nobody
+ * ever reads.
+ * @returns {Array} the findings that were newly seeded (dedupeInto's own return)
+ */
+export function seedInitial(seen, findings, width) {
+  for (const f of findings) f.state = "initial";
+  return dedupeInto(seen, findings, width);
+}
+
+/**
+ * Task 6 gate for one width: whether interaction runs at all. Extracted so the opt-out
+ * guarantee is provable against the exact code main() runs, not a parallel copy of it --
+ * deleting or inverting this check is exactly the regression this function exists to catch.
+ * Disabled/absent config: `findings` is returned completely untouched and `run` (the real
+ * exploreWidth call) is never invoked.
+ *
+ * `findings` must be the route's real, persistent findings array (not a filtered copy):
+ * newly-discovered exploration findings are pushed directly onto it, so a `.filter()` result
+ * passed in here would silently swallow every finding interaction discovers.
+ * @param {{enabled?:boolean}} ex
+ * @param {Map<string,object>} seen
+ * @param {Array} findings  the route's findings array; filtered to this width internally
+ * @param {number} width
+ * @param {() => Promise<{states:Array, findings:Array, noops:Array, failed:Array}>} run
+ */
+export async function maybeExplore(ex, seen, findings, width, run) {
+  if (!ex.enabled) return { states: [], noops: [], failed: [] };
+  const widthFindings = findings.filter((f) => f.width === width);
+  seedInitial(seen, widthFindings, width);
+  const out = await run();
+  // IMPORTANT: tag in place, not a spread copy -- exploreWidth never sets width on the
+  // findings it returns, and report-server.mjs / mute-store.mjs both key off it.
+  for (const f of out.findings) f.width = width;
+  findings.push(...dedupeInto(seen, out.findings, width));
+  return { states: out.states, noops: out.noops, failed: out.failed || [] };
+}
+
 // Outline the flagged element in pink, then walk up from it until an ancestor is at
 // least 240x48 (capped at 4 hops) and stamp that ancestor with data-rvctx. The crop
 // screenshots the ancestor, not the bare element, so a 9px span is not the whole photo.
@@ -163,9 +204,17 @@ async function main() {
   const PROBE_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "probe.js"), "utf8")
     .split("\n").join(" ").replace(/\s+/g, " ").trim();
 
-  // Interaction sources (Tasks 4-5). Same flattening as PROBE_SRC above, same reason.
-  const ACTIONS_SRC = oneLine(readFileSync(join(HERE, "actions.js"), "utf8"));
-  const FILL_SRC = oneLine(readFileSync(join(HERE, "fill.js"), "utf8"));
+  // Interaction (Task 6). Hoisted once here, not recomputed per route: cfg.explore doesn't
+  // change mid-run. ACTIONS_SRC/FILL_SRC are read only when explore is actually on, so an
+  // opt-out run has no dependency on these files existing at all.
+  const ex = cfg.explore || {};
+  let ACTIONS_SRC = null;
+  let FILL_SRC = null;
+  if (ex.enabled) {
+    // Same flattening as PROBE_SRC above, same reason.
+    ACTIONS_SRC = oneLine(readFileSync(join(HERE, "actions.js"), "utf8"));
+    FILL_SRC = oneLine(readFileSync(join(HERE, "fill.js"), "utf8"));
+  }
 
   // axe-core is opt-in (config "axe": true), default OFF. See the MEASURED COST comment
   // above the injection loop below for why. Resolved from the TARGET repo's node_modules,
@@ -274,12 +323,11 @@ async function main() {
 
       // Defect probe, once per width. resize is cheap; the browser stays warm.
       const findings = [];
-      // Interaction (Task 6). ex.enabled gates everything below: absent or false, none of
-      // this runs, and `findings` is only ever pushed to by the probe above -- output stays
+      // Interaction (Task 6). maybeExplore's own gate handles enabled/disabled -- `findings`
+      // is only ever pushed to by the probe below when disabled, so output stays
       // byte-identical to before this feature existed. `seen` is declared fresh per route
       // (right here, alongside `findings`) so a finding on one route can never suppress the
       // same selector on another route.
-      const ex = cfg.explore || {};
       const seen = new Map(); // rule|sel|width -> the finding that first reported it
       const routeStates = [];
       const routeNoops = [];
@@ -309,17 +357,13 @@ async function main() {
         }
 
         // Interaction: click/fill through the route's controls and probe again after each
-        // one. dedupeInto is the only thing standing between this and a report a user can't
-        // read, so it runs against a Map seeded with THIS width's just-probed findings
-        // (mutated in place, not copied, so a later alsoIn append is visible on the same
-        // object that ends up in `findings` / detail.json / report.json).
-        if (ex.enabled) {
-          const widthFindings = findings.filter((f) => f.width === w);
-          for (const f of widthFindings) f.state = "initial";
-          dedupeInto(seen, widthFindings, w);
-
+        // one. maybeExplore is the single gate (opt-out proven against this exact call in
+        // dedupe.test.mjs, not a parallel copy of it); mutating is decided once, inside
+        // exploreWidth -- nothing here re-checks kind or adds a second gate around it.
+        // Pass the real `findings` array, not a filtered copy -- see maybeExplore's own doc.
+        const explored = await maybeExplore(ex, seen, findings, w, () => {
           const per = Math.floor((ex.budgetMs || 60000) / widths.length);
-          const out = await exploreWidth(
+          return exploreWidth(
             {
               readActions: async () => JSON.parse(cli([S, "--raw", "eval", ACTIONS_SRC]).out),
               reset: async () => {
@@ -335,13 +379,10 @@ async function main() {
             },
             { budgetMs: per, invalidPass: ex.invalidPass !== false, mutate: ex.mutate || [], skip: ex.skip || [] },
           );
-          // mutating is decided once, inside exploreWidth; nothing here re-checks kind or
-          // adds a second gate around it.
-          findings.push(...dedupeInto(seen, out.findings, w));
-          routeStates.push(...out.states);
-          routeNoops.push(...out.noops);
-          routeFailed.push(...(out.failed || []));
-        }
+        });
+        routeStates.push(...explored.states);
+        routeNoops.push(...explored.noops);
+        routeFailed.push(...explored.failed);
       }
 
       // axe-core, once per route at the widest viewport. wcag22aa is REQUIRED in the tag
@@ -394,6 +435,10 @@ async function main() {
       if (status === "PASS" && r.canvas) { status = "WARN"; reasons.push("canvas route: accessibility tree is blind, screenshot or eval app state if the visual matters"); }
       if (status === "PASS" && cfg.checkWarnings && warnings.length) { status = "WARN"; reasons.push(`${warnings.length} console warning(s)`); }
       if (findings.length && status === "PASS") { status = "WARN"; reasons.push(`${findings.length} visual finding(s)`); }
+      // routeFailed is always [] when explore is off, so this never fires for an opt-out
+      // run. A route where every interaction failed must not print [PASS] with the only
+      // evidence buried in a detail.json nobody opens for a passing route.
+      if (status === "PASS" && routeFailed.length) { status = "WARN"; reasons.push(`${routeFailed.length} interaction(s) failed`); }
 
       // Write full detail to disk. The agent reads these only for flagged routes.
       const detail = {
@@ -412,7 +457,11 @@ async function main() {
       if (consoleText) writeFileSync(join(dir, "console.txt"), consoleText);
       if (requestsText) writeFileSync(join(dir, "requests.txt"), requestsText);
 
-      results.push({ path, status, reasons, jsErr: jsErrors.length, netFail: netFailures.length, findings });
+      results.push({
+        path, status, reasons, jsErr: jsErrors.length, netFail: netFailures.length, findings,
+        // Same opt-in-only shape rule as detail.json above.
+        ...(ex.enabled ? { failed: routeFailed.length } : {}),
+      });
     }
   } finally {
     cli([S, "close"]); // always release the browser
