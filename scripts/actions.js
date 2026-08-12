@@ -34,25 +34,44 @@ const path=el=>{
    'Yes, I understand this is permanent, delete it' and the dangerous word sits past
    character 40, so truncating before the test loses it. NBSP counts as whitespace. */
 const norm=s=>(s||'').replace(/[\s\u00a0]+/g,' ').trim();
-const labelsFor=el=>{
+/* textContent fuses adjacent nodes with no separator: two option elements reading Choose
+   and Delete selected rows come out as ChooseDelete selected rows, and a word-boundary
+   match can no longer see the verb. React and minified HTML emit exactly that shape, so
+   every name is built by joining descendant text nodes with a space instead.
+   Joining with a space fixes that shape but breaks the opposite one: an accesskey
+   underline writes <u>D</u>elete account, which space-joins to D elete account and loses
+   the same boundary. So the joiner is a parameter and the danger test reads the name BOTH
+   ways, spaced and fused. A word only has to look dangerous in one of them. */
+const textOf=(el,j)=>{
   let s='';
-  if(el.id)for(const l of [...document.querySelectorAll('label[for]')])if(l.getAttribute('for')===el.id)s+=' '+l.textContent;
+  const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,null);
+  while(w.nextNode())s+=j+w.currentNode.nodeValue;
+  return s;
+};
+const labelsFor=(el,j)=>{
+  let s='';
+  if(el.id)for(const l of [...document.querySelectorAll('label[for]')])if(l.getAttribute('for')===el.id)s+=j+textOf(l,j);
   const w=el.closest&&el.closest('label');
-  if(w)s+=' '+w.textContent;
+  if(w)s+=j+textOf(w,j);
   return s;
 };
 /* An input has no textContent, so without value, placeholder and its label an input
    named Delete account would score as the empty string and always look safe. */
-const fullName=el=>norm(
+const fullName=(el,j)=>norm(
   (el.getAttribute('aria-label')||'')+' '+(el.getAttribute('title')||'')+' '+
   (el.getAttribute('value')||'')+' '+(el.getAttribute('placeholder')||'')+' '+
-  labelsFor(el)+' '+(el.textContent||'')
+  labelsFor(el,j)+' '+textOf(el,j)
 );
-const nameOf=el=>fullName(el).slice(0,40);
+/* Reads dangerous under either reading of the text nodes. */
+const danger=el=>DANGER.test(fullName(el,' '))||DANGER.test(fullName(el,''));
+const nameOf=el=>fullName(el,' ').slice(0,40);
 
-const DANGER=/\b(delete|remove|revoke|destroy|reset|erase|wipe|purge|drop|terminate|deactivate|suspend|cancel|unsubscribe|downgrade|upgrade|pay|charge|purchase|buy|send|invite|publish|deploy|save|create|update|apply|submit|confirm|approve|reject|sign ?out|log ?out)\b/i;
+const DANGER=/\b(delete|remove|revoke|destroy|reset|erase|wipe|purge|drop|terminate|deactivate|suspend|cancel|unsubscribe|downgrade|upgrade|pay|charge|purchase|buy|send|invite|publish|deploy|save|create|update|apply|submit|confirm|approve|reject|disable|transfer|archive|nuke|shut ?down|factory|sign ?out|log ?out)\b/i;
 const FIELD=/^(INPUT|SELECT|TEXTAREA)$/;
 const BTN_TYPE=/^(submit|image|button|reset)$/;
+/* Empty string included: an input with no type attribute defaults to text. */
+const TYPED=/^(|text|email|password|search|tel|url|number|date|datetime-local|month|week|time)$/;
+const TOGGLE=/^(checkbox|radio)$/;
 
 const mutating=el=>{
   const t=el.tagName;
@@ -75,8 +94,17 @@ const mutating=el=>{
      many apps auto-save. Those fall through to the danger test below, so
      <input type=checkbox role=switch aria-label='Revoke all API keys'> stays mutating. */
   if(t==='TEXTAREA')return false;
-  if(t==='INPUT'&&!BTN_TYPE.test(ty)&&!/^(checkbox|radio)$/.test(ty))return false;
-  if(DANGER.test(fullName(el)))return true;
+  /* A positive allowlist, not an exclusion list. file, range and color are not typed:
+     a file input attaches an upload and a range is a toggle, so an exclusion list that
+     only skipped the button types let both of those through as safe. */
+  if(t==='INPUT'&&TYPED.test(ty))return false;
+  if(danger(el))return true;
+  /* Anything left is an input the tool cannot fill with text and does not understand, so
+     it is mutating whatever it is named. This line is load bearing: kindOf still calls a
+     file input a field, so the fail-closed default never fires for it, and
+     <input type=file aria-label='Replace production database dump'> carries no danger
+     word at all. */
+  if(t==='INPUT'&&!TOGGLE.test(ty))return true;
   if(t==='A'){
     const h=el.getAttribute('href')||'';
     if(h&&h.charAt(0)!=='#'&&h.indexOf('javascript:')!==0&&h!==location.pathname)return true;

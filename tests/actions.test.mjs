@@ -126,3 +126,33 @@ test("a destructive toggle or select is mutating even though it is a field", asy
     assert.equal(m("#pw").mutating, false, "Confirm password must stay fillable");
   });
 });
+
+/* textContent fuses adjacent nodes, so these read as ChooseDelete and Deleteworkspace.
+   Without textOf() the word boundary never matches and the control is clicked unattended. */
+test("a danger word split across sibling nodes is still caught", async () => {
+  await evalActions("adversarial.html", 1440, 900, (r) => {
+    const m = (p) => r.candidates.find((c) => c.path === p);
+    assert.equal(m("#fused-select").mutating, true, "adjacent option elements, no whitespace");
+    assert.equal(m("#fused-button").mutating, true, "adjacent span elements, no whitespace");
+  });
+});
+
+/* The inverse shape, and a regression the space join introduces on its own: an accesskey
+   underline writes <u>D</u>elete account, which space-joins to D elete account and loses
+   the boundary again. aria-expanded makes it a disclosure, so fail-closed cannot rescue it
+   and only the danger test can. Found by running invented markup, not by the suite. */
+test("a danger word split in the middle of a word is still caught", async () => {
+  await evalActions("adversarial.html", 1440, 900, (r) => {
+    const c = r.candidates.find((x) => x.path === "#split-word");
+    assert.equal(c.mutating, true, "accesskey underline splits Delete into D and elete");
+  });
+});
+
+/* Mutation testing proved deleting the TEXTAREA line left the suite green. */
+test("a textarea stays fillable and a file input does not", async () => {
+  await evalActions("adversarial.html", 1440, 900, (r) => {
+    const m = (p) => r.candidates.find((c) => c.path === p);
+    assert.equal(m("#bio").mutating, false, "a textarea is typed, so it is fillable");
+    assert.equal(m("#upload").mutating, true, "a file input attaches an upload, not text");
+  });
+});
