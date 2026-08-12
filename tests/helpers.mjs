@@ -57,4 +57,31 @@ export async function withFixture(fileName, width, height, fn) {
   }
 }
 
+const ACTIONS = readFileSync(join(HERE, "..", "scripts", "actions.js"), "utf8");
+
+/** Serve one fixture, evaluate actions.js at a given size, hand the result to fn. */
+export async function evalActions(fileName, width, height, fn) {
+  const html = readFileSync(join(HERE, "fixtures", fileName), "utf8");
+  const srv = createServer((_, res) => {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(html);
+  });
+  await new Promise((r) => srv.listen(0, r));
+  const port = srv.address().port;
+  const S = `-s=fv-${port}`;
+  try {
+    await cli([S, "open"]);
+    await cli([S, "goto", `http://localhost:${port}/`]);
+    await cli([S, "resize", String(width), String(height)]);
+    const raw = await cli([S, "--raw", "eval", oneLine(ACTIONS)]);
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch { throw new Error("actions did not return JSON. Got:\n" + raw.slice(0, 400)); }
+    await fn(parsed);
+  } finally {
+    await cli([S, "close"]);
+    await new Promise((r) => srv.close(r));
+  }
+}
+
 export const countOf = (result, rule) => result.findings.filter((f) => f.rule === rule).length;

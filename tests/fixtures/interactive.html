@@ -1,0 +1,43 @@
+<!doctype html><meta charset=utf-8><title>interactive</title>
+<style>
+  body{margin:0;font:16px/22px system-ui;background:#fff;color:#111}
+  .low{color:#bbb}
+  [role=tabpanel][hidden]{display:none}
+  #dlg[hidden]{display:none}
+  #tiny{width:14px;height:14px}
+  .err{display:none;color:#c9c9c9}
+  input:invalid ~ .err{display:block}
+</style>
+
+<div role="tablist">
+  <button role="tab" id="tab-a" aria-selected="true">Overview</button>
+  <button role="tab" id="tab-b" aria-selected="false">Billing</button>
+</div>
+<div role="tabpanel" id="panel-a">Overview content</div>
+<div role="tabpanel" id="panel-b" hidden><span class="low">billing muted text</span></div>
+
+<details><summary id="disc">More detail</summary>
+  <img id="brokenimg" src="/nope.png" alt="broken">
+</details>
+
+<button type="button" id="opendlg" aria-haspopup="dialog">Open dialog</button>
+<div id="dlg" hidden role="dialog"><button type="button" id="tiny">x</button></div>
+
+<form id="signup">
+  <label for="em">Email</label>
+  <input id="em" type="email" required>
+  <span class="err">Enter a valid email</span>
+  <button type="submit" id="go">Create account</button>
+</form>
+
+<button type="button" id="danger">Delete account</button>
+<button type="button" id="noop">Does nothing</button>
+<p id="counter">Viewed 3 times</p>
+
+<script>
+  tabB.onclick = () => { panelB.hidden = false; panelA.hidden = true;
+    tabB.setAttribute('aria-selected','true'); tabA.setAttribute('aria-selected','false'); };
+  opendlg.onclick = () => { dlg.hidden = false; };
+  danger.onclick = () => { document.title = 'BOOM'; };
+  go.onclick = (e) => { e.preventDefault(); document.title = 'SUBMITTED'; };
+</script>
