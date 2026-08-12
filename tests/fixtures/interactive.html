@@ -35,9 +35,16 @@
 <p id="counter">Viewed 3 times</p>
 
 <script>
-  tabB.onclick = () => { panelB.hidden = false; panelA.hidden = true;
-    tabB.setAttribute('aria-selected','true'); tabA.setAttribute('aria-selected','false'); };
-  opendlg.onclick = () => { dlg.hidden = false; };
-  danger.onclick = () => { document.title = 'BOOM'; };
-  go.onclick = (e) => { e.preventDefault(); document.title = 'SUBMITTED'; };
+  /* Ids are hyphenated, so window named-access exposes them as window['tab-b'], NOT tabB.
+     Referencing tabB throws ReferenceError on the first line and silently attaches NONE of
+     these handlers, which would make every later safety assertion pass vacuously. */
+  var $ = function (id) { return document.getElementById(id); };
+  $('tab-b').onclick = function () {
+    $('panel-b').hidden = false; $('panel-a').hidden = true;
+    $('tab-b').setAttribute('aria-selected', 'true');
+    $('tab-a').setAttribute('aria-selected', 'false');
+  };
+  $('opendlg').onclick = function () { $('dlg').hidden = false; };
+  $('danger').onclick = function () { document.title = 'BOOM'; };
+  $('go').onclick = function (e) { e.preventDefault(); document.title = 'SUBMITTED'; };
 </script>
