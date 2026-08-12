@@ -91,3 +91,47 @@ export async function evalActions(fileName, width, height, fn) {
 }
 
 export const countOf = (result, rule) => result.findings.filter((f) => f.rule === rule).length;
+
+import { exploreWidth } from "../scripts/explore.mjs";
+
+const FILL = readFileSync(join(HERE, "..", "scripts", "fill.js"), "utf8");
+
+/** Serve a fixture and run the real explore loop against it in a real browser. */
+export async function withExplore(fileName, width, height, opts, fn) {
+  const html = readFileSync(join(HERE, "fixtures", fileName), "utf8");
+  const srv = createServer((_, res) => {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(html);
+  });
+  await new Promise((r) => srv.listen(0, r));
+  const port = srv.address().port;
+  const S = `-s=fv-${port}`;
+  const url = `http://localhost:${port}/`;
+  try {
+    await cli([S, "open"], true);
+    const goto = async () => {
+      await cli([S, "goto", url]);
+      await cli([S, "resize", String(width), String(height)]);
+    };
+    await goto();
+    const out = await exploreWidth(
+      {
+        readActions: async () => JSON.parse(await cli([S, "--raw", "eval", oneLine(ACTIONS)])),
+        reset: goto,
+        click: async (p) => { await cli([S, "click", p]); },
+        fillForm: async (p, mode) => {
+          await cli([S, "--raw", "eval",
+            oneLine(FILL).split("__PATH__").join(p).split("__MODE__").join(mode)]);
+        },
+        scan: async () => (JSON.parse(await cli([S, "--raw", "eval", oneLine(PROBE)])).findings || []),
+        now: () => Date.now(),
+      },
+      opts,
+    );
+    out.title = (await cli([S, "--raw", "eval", "document.title"])).replace(/^"|"$/g, "");
+    await fn(out);
+  } finally {
+    await cli([S, "close"]);
+    await new Promise((r) => srv.close(r));
+  }
+}
