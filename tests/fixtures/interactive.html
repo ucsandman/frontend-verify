@@ -5,6 +5,9 @@
   [role=tabpanel][hidden]{display:none}
   #dlg[hidden]{display:none}
   #tiny{width:14px;height:14px}
+  /* >=24px so #noop has no tap-target defect of its own. Without this the no-op assertion
+     conflates 'a no-op click yields no finding' with 'this element is defect-free'. */
+  #noop{height:32px;min-width:96px}
   .err{display:none;color:#c9c9c9}
   input:invalid ~ .err{display:block}
 </style>
