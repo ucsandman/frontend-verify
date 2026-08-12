@@ -42,10 +42,16 @@
 import { execFileSync, execSync } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { exploreWidth } from "./explore.mjs";
 
 const isWin = process.platform === "win32";
 const CLI_OVERRIDE = (process.env.FE_VERIFY_CLI || "").trim(); // e.g. "npx --no-install playwright-cli"
+const HERE = dirname(fileURLToPath(import.meta.url));
+// Flatten a browser-source file to one line: a `//` comment inside a multi-line eval arg
+// swallows the rest of its line once the string crosses the shell, including an IIFE's
+// closing token. Same fix tests/helpers.mjs applies, for the identical reason.
+const oneLine = (src) => src.split("\n").join(" ").replace(/\s+/g, " ").trim();
 
 // Quote one arg for cmd.exe. Node based CLIs parse \" as a literal quote in argv,
 // so escaping inner quotes this way is correct for the playwright-cli shim on Windows.
@@ -91,6 +97,30 @@ function slug(p) {
   return s || "root";
 }
 
+/**
+ * Interaction may only ever add genuinely new defects. A token that is low-contrast in five
+ * states is ONE finding listing five states, not five findings.
+ * @param {Map<string,object>} seen  key -> the finding that first reported it
+ * @returns {Array} only the findings whose key was unseen
+ */
+export function dedupeInto(seen, findings, width) {
+  const fresh = [];
+  for (const f of findings) {
+    const key = `${f.rule}|${f.sel}|${width}`;
+    const prior = seen.get(key);
+    if (prior) {
+      if (f.state && f.state !== prior.state) {
+        prior.alsoIn = prior.alsoIn || [];
+        if (!prior.alsoIn.includes(f.state)) prior.alsoIn.push(f.state);
+      }
+      continue;
+    }
+    seen.set(key, f);
+    fresh.push(f);
+  }
+  return fresh;
+}
+
 // Outline the flagged element in pink, then walk up from it until an ancestor is at
 // least 240x48 (capped at 4 hops) and stamp that ancestor with data-rvctx. The crop
 // screenshots the ancestor, not the bare element, so a 9px span is not the whole photo.
@@ -132,6 +162,10 @@ async function main() {
   // Same fix tests/helpers.mjs already applies for the identical reason.
   const PROBE_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "probe.js"), "utf8")
     .split("\n").join(" ").replace(/\s+/g, " ").trim();
+
+  // Interaction sources (Tasks 4-5). Same flattening as PROBE_SRC above, same reason.
+  const ACTIONS_SRC = oneLine(readFileSync(join(HERE, "actions.js"), "utf8"));
+  const FILL_SRC = oneLine(readFileSync(join(HERE, "fill.js"), "utf8"));
 
   // axe-core is opt-in (config "axe": true), default OFF. See the MEASURED COST comment
   // above the injection loop below for why. Resolved from the TARGET repo's node_modules,
@@ -240,6 +274,16 @@ async function main() {
 
       // Defect probe, once per width. resize is cheap; the browser stays warm.
       const findings = [];
+      // Interaction (Task 6). ex.enabled gates everything below: absent or false, none of
+      // this runs, and `findings` is only ever pushed to by the probe above -- output stays
+      // byte-identical to before this feature existed. `seen` is declared fresh per route
+      // (right here, alongside `findings`) so a finding on one route can never suppress the
+      // same selector on another route.
+      const ex = cfg.explore || {};
+      const seen = new Map(); // rule|sel|width -> the finding that first reported it
+      const routeStates = [];
+      const routeNoops = [];
+      const routeFailed = [];
       for (const w of widths) {
         cli([S, "resize", String(w), String(cfg.viewportHeight || 900)]);
         sleep(250); // let responsive layout settle before measuring geometry
@@ -262,6 +306,41 @@ async function main() {
           }
         } else {
           reasons.push(`probe failed at width ${w}`);
+        }
+
+        // Interaction: click/fill through the route's controls and probe again after each
+        // one. dedupeInto is the only thing standing between this and a report a user can't
+        // read, so it runs against a Map seeded with THIS width's just-probed findings
+        // (mutated in place, not copied, so a later alsoIn append is visible on the same
+        // object that ends up in `findings` / detail.json / report.json).
+        if (ex.enabled) {
+          const widthFindings = findings.filter((f) => f.width === w);
+          for (const f of widthFindings) f.state = "initial";
+          dedupeInto(seen, widthFindings, w);
+
+          const per = Math.floor((ex.budgetMs || 60000) / widths.length);
+          const out = await exploreWidth(
+            {
+              readActions: async () => JSON.parse(cli([S, "--raw", "eval", ACTIONS_SRC]).out),
+              reset: async () => {
+                cli([S, "goto", url]);
+                cli([S, "resize", String(w), String(cfg.viewportHeight || 900)]);
+              },
+              click: async (p) => { cli([S, "click", p]); },
+              fillForm: async (p, mode) => {
+                cli([S, "--raw", "eval", FILL_SRC.split("__PATH__").join(p).split("__MODE__").join(mode)]);
+              },
+              scan: async () => JSON.parse(cli([S, "--raw", "eval", PROBE_SRC]).out).findings || [],
+              now: () => Date.now(),
+            },
+            { budgetMs: per, invalidPass: ex.invalidPass !== false, mutate: ex.mutate || [], skip: ex.skip || [] },
+          );
+          // mutating is decided once, inside exploreWidth; nothing here re-checks kind or
+          // adds a second gate around it.
+          findings.push(...dedupeInto(seen, out.findings, w));
+          routeStates.push(...out.states);
+          routeNoops.push(...out.noops);
+          routeFailed.push(...(out.failed || []));
         }
       }
 
@@ -325,6 +404,9 @@ async function main() {
         resourceErrors: resourceErrors.length ? resourceErrors : "(none)",
         navOk: !navFailed,
         findings,
+        // Explore is opt-in: these keys exist only when cfg.explore.enabled is true, so a
+        // disabled/absent run writes the exact same detail.json shape as before this feature.
+        ...(ex.enabled ? { states: routeStates, noops: routeNoops, failed: routeFailed } : {}),
       };
       writeFileSync(join(dir, "detail.json"), JSON.stringify(detail, null, 2));
       if (consoleText) writeFileSync(join(dir, "console.txt"), consoleText);
@@ -375,4 +457,9 @@ async function main() {
   process.exit(fails > 0 ? 1 : 0);
 }
 
-main().catch((e) => { console.error(e); process.exit(2); });
+// Guard so a test can `import { dedupeInto } from "./verify-routes.mjs"` without triggering a
+// real run: main() used to fire unconditionally on any import, which killed the process with
+// "usage: ..." + exit(2) before the importing module's own code ever executed.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(2); });
+}
