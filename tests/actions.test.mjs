@@ -42,3 +42,41 @@ test("every candidate path resolves to exactly one element", async () => {
     }
   });
 });
+
+const byPath = (r, p) => r.candidates.find((c) => c.path === p);
+
+test("classifies a tab as safe and ranks it first", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    const c = byPath(r, "#tab-b");
+    assert.equal(c.kind, "tab");
+    assert.equal(c.mutating, false);
+    assert.equal(c.rank, 1);
+  });
+});
+
+test("classifies a submit button as mutating", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    assert.equal(byPath(r, "#go").mutating, true);
+  });
+});
+
+test("classifies a destructive label as mutating even on type=button", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    assert.equal(byPath(r, "#danger").mutating, true, "Delete account must never be safe");
+  });
+});
+
+test("finds the disclosure, the dialog trigger and the form", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    assert.equal(byPath(r, "#disc").kind, "disclosure");
+    assert.equal(byPath(r, "#opendlg").kind, "dialog");
+    assert.equal(byPath(r, "#signup").kind, "form");
+  });
+});
+
+test("candidates are sorted by rank", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    const ranks = r.candidates.map((c) => c.rank);
+    assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b));
+  });
+});

@@ -32,13 +32,56 @@ const path=el=>{
 
 const nameOf=el=>((el.getAttribute('aria-label')||el.getAttribute('title')||el.textContent||'').trim()).slice(0,40);
 
+/* Anything whose accessible name says it changes the world. */
+const DANGER=/\b(delete|remove|revoke|destroy|reset|erase|wipe|cancel|unsubscribe|downgrade|upgrade|pay|charge|purchase|buy|send|invite|publish|deploy|sign ?out|log ?out)\b/i;
+const FIELD=/^(INPUT|SELECT|TEXTAREA)$/;
+
+const mutating=el=>{
+  const t=el.tagName;
+  const ty=(el.getAttribute('type')||'').toLowerCase();
+  if(t==='INPUT'&&ty==='submit')return true;
+  if(t==='BUTTON'&&ty==='submit')return true;
+  if(t==='BUTTON'&&!el.hasAttribute('type')&&el.closest('form'))return true;
+  if(el.hasAttribute('formaction'))return true;
+  if(DANGER.test(nameOf(el)))return true;
+  if(t==='A'){
+    const h=el.getAttribute('href')||'';
+    if(h&&h.charAt(0)!=='#'&&h.indexOf('javascript:')!==0&&h!==location.pathname)return true;
+  }
+  return false;
+};
+
+/* Returns null when the element is not positively recognised. The caller treats that as
+   mutating, so an unknown control is never clicked without an explicit opt-in. */
+const kindOf=el=>{
+  if(el.matches('[role=tab],[role=menuitem]'))return {kind:'tab',rank:1};
+  if(el.tagName==='SUMMARY'||el.matches('[aria-expanded],[data-state]'))return {kind:'disclosure',rank:2};
+  if(el.matches('[aria-haspopup]'))return {kind:'dialog',rank:3};
+  if(el.tagName==='FORM')return {kind:'form',rank:4};
+  if(FIELD.test(el.tagName))return {kind:'field',rank:5};
+  if(el.tagName==='BUTTON'&&(el.getAttribute('type')||'').toLowerCase()==='button')return {kind:'control',rank:6};
+  return null;
+};
+
+const SEL='a[href],button,input,select,textarea,form,summary,[role=tab],[role=menuitem],[role=button],[aria-expanded],[aria-haspopup],[data-state]';
+const seen={};
 const candidates=[];
-for(const el of [...document.querySelectorAll('[role=tab]')]){
-  if(!vis(el))continue;
+for(const el of [...document.querySelectorAll(SEL)]){
+  /* A form is a container: measure it by its own box only if something in it is visible. */
+  if(el.tagName!=='FORM'&&!vis(el))continue;
   const p=path(el);
-  if(!p)continue;
-  candidates.push({path:p,kind:'tab',label:nameOf(el),mutating:false,rank:1});
+  if(!p||seen[p])continue;
+  seen[p]=1;
+  const k=kindOf(el);
+  candidates.push({
+    path:p,
+    kind:k?k.kind:'control',
+    label:nameOf(el),
+    mutating:mutating(el)||!k,
+    rank:k?k.rank:6
+  });
 }
+candidates.sort((a,b)=>a.rank-b.rank);
 
 return {sig:signature(),candidates:candidates};
 })()
