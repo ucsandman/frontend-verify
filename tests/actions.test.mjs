@@ -80,3 +80,27 @@ test("candidates are sorted by rank", async () => {
     assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b));
   });
 });
+
+/* The fail-closed rule is the whole safety story, and without this test deleting `||!k`
+   leaves the suite green. This element matches no recognised kind and has a deliberately
+   benign name, so ONLY the fail-closed default can make it mutating. */
+test("an unrecognised control is mutating even with a harmless name", async () => {
+  await evalActions("unknown.html", 1440, 900, (r) => {
+    const c = r.candidates.find((x) => x.label === "Hello there");
+    assert.ok(c, "the element must be discovered at all");
+    assert.equal(c.mutating, true, "fail-closed default is missing");
+  });
+});
+
+/* Each of these was classified SAFE by the first implementation. */
+test("classifies adversarial destructive controls as mutating", async () => {
+  await evalActions("adversarial.html", 1440, 900, (r) => {
+    const m = (p) => r.candidates.find((c) => c.path === p);
+    assert.equal(m("#img-submit").mutating, true, "input type=image is a submit button");
+    assert.equal(m("#val-delete").mutating, true, "danger word lives in value=, not text");
+    assert.equal(m("#danger-form").mutating, true, "form action names a destructive route");
+    assert.equal(m("#radix-switch").mutating, true, "data-state alone is not a disclosure");
+    assert.equal(m("#long-confirm").mutating, true, "danger word sits past character 40");
+    assert.equal(m("#nbsp-signout").mutating, true, "non-breaking space inside the phrase");
+  });
+});

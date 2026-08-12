@@ -30,20 +30,40 @@ const path=el=>{
   return uniq(p)?p:null;
 };
 
-const nameOf=el=>((el.getAttribute('aria-label')||el.getAttribute('title')||el.textContent||'').trim()).slice(0,40);
+/* Names are compared UNTRUNCATED and whitespace-normalised. A confirm button reads
+   'Yes, I understand this is permanent, delete it' and the dangerous word sits past
+   character 40, so truncating before the test loses it. NBSP counts as whitespace. */
+const norm=s=>(s||'').replace(/[\s\u00a0]+/g,' ').trim();
+const labelsFor=el=>{
+  let s='';
+  if(el.id)for(const l of [...document.querySelectorAll('label[for]')])if(l.getAttribute('for')===el.id)s+=' '+l.textContent;
+  const w=el.closest&&el.closest('label');
+  if(w)s+=' '+w.textContent;
+  return s;
+};
+/* An input has no textContent, so without value, placeholder and its label an input
+   named Delete account would score as the empty string and always look safe. */
+const fullName=el=>norm(
+  (el.getAttribute('aria-label')||'')+' '+(el.getAttribute('title')||'')+' '+
+  (el.getAttribute('value')||'')+' '+(el.getAttribute('placeholder')||'')+' '+
+  (el.tagName==='FORM'?(el.getAttribute('action')||''):'')+' '+
+  labelsFor(el)+' '+(el.textContent||'')
+);
+const nameOf=el=>fullName(el).slice(0,40);
 
-/* Anything whose accessible name says it changes the world. */
-const DANGER=/\b(delete|remove|revoke|destroy|reset|erase|wipe|cancel|unsubscribe|downgrade|upgrade|pay|charge|purchase|buy|send|invite|publish|deploy|sign ?out|log ?out)\b/i;
+const DANGER=/\b(delete|remove|revoke|destroy|reset|erase|wipe|purge|drop|terminate|deactivate|suspend|cancel|unsubscribe|downgrade|upgrade|pay|charge|purchase|buy|send|invite|publish|deploy|save|create|update|apply|submit|confirm|approve|reject|sign ?out|log ?out)\b/i;
 const FIELD=/^(INPUT|SELECT|TEXTAREA)$/;
+const BTN_TYPE=/^(submit|image|button|reset)$/;
 
 const mutating=el=>{
   const t=el.tagName;
   const ty=(el.getAttribute('type')||'').toLowerCase();
-  if(t==='INPUT'&&ty==='submit')return true;
+  /* input type=image IS a submit button per the HTML spec. */
+  if(t==='INPUT'&&(ty==='submit'||ty==='image'))return true;
   if(t==='BUTTON'&&ty==='submit')return true;
   if(t==='BUTTON'&&!el.hasAttribute('type')&&el.closest('form'))return true;
   if(el.hasAttribute('formaction'))return true;
-  if(DANGER.test(nameOf(el)))return true;
+  if(DANGER.test(fullName(el)))return true;
   if(t==='A'){
     const h=el.getAttribute('href')||'';
     if(h&&h.charAt(0)!=='#'&&h.indexOf('javascript:')!==0&&h!==location.pathname)return true;
@@ -51,23 +71,24 @@ const mutating=el=>{
   return false;
 };
 
-/* Returns null when the element is not positively recognised. The caller treats that as
-   mutating, so an unknown control is never clicked without an explicit opt-in. */
+/* The safe set is deliberately narrow. role=menuitem, data-state alone and
+   button[type=button] were all removed after a live adversarial run classified 9 of 10
+   destructive controls as safe: a Radix switch carries data-state, a menu item performs
+   an action, and a type=button can call fetch(/api/delete). Anything not listed here
+   returns null and the caller forces mutating:true. */
 const kindOf=el=>{
-  if(el.matches('[role=tab],[role=menuitem]'))return {kind:'tab',rank:1};
-  if(el.tagName==='SUMMARY'||el.matches('[aria-expanded],[data-state]'))return {kind:'disclosure',rank:2};
+  if(el.matches('[role=tab]'))return {kind:'tab',rank:1};
+  if(el.tagName==='SUMMARY'||el.matches('[aria-expanded]'))return {kind:'disclosure',rank:2};
   if(el.matches('[aria-haspopup]'))return {kind:'dialog',rank:3};
   if(el.tagName==='FORM')return {kind:'form',rank:4};
-  if(FIELD.test(el.tagName))return {kind:'field',rank:5};
-  if(el.tagName==='BUTTON'&&(el.getAttribute('type')||'').toLowerCase()==='button')return {kind:'control',rank:6};
+  if(FIELD.test(el.tagName)&&!(el.tagName==='INPUT'&&BTN_TYPE.test((el.getAttribute('type')||'').toLowerCase())))return {kind:'field',rank:5};
   return null;
 };
 
-const SEL='a[href],button,input,select,textarea,form,summary,[role=tab],[role=menuitem],[role=button],[aria-expanded],[aria-haspopup],[data-state]';
+const SEL='a[href],button,input,select,textarea,form,summary,[role=tab],[role=menuitem],[role=button],[role=switch],[aria-expanded],[aria-haspopup],[data-state]';
 const seen={};
 const candidates=[];
 for(const el of [...document.querySelectorAll(SEL)]){
-  /* A form is a container: measure it by its own box only if something in it is visible. */
   if(el.tagName!=='FORM'&&!vis(el))continue;
   const p=path(el);
   if(!p||seen[p])continue;
