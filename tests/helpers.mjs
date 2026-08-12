@@ -19,13 +19,19 @@ const pExec = promisify(exec);
 /** Flatten to one line so a shell-passed CLI arg cannot be cut short by a line comment. */
 const oneLine = (src) => src.split("\n").join(" ").replace(/\s+/g, " ").trim();
 
-async function cli(args) {
+// strict=true (used for `open`) rethrows instead of swallowing: a launch race under
+// parallel node:test needs to fail loudly right here, with the real stderr, instead of
+// surfacing 3 calls later as an opaque "did not return JSON. Got: (empty)".
+async function cli(args, strict) {
   const q = (a) => `"${String(a).replace(/"/g, '\\"')}"`;
-  const opts = { encoding: "utf8", timeout: 60000, maxBuffer: 64 * 1024 * 1024, windowsHide: true };
+  const opts = { encoding: "utf8", timeout: 120000, maxBuffer: 64 * 1024 * 1024, windowsHide: true };
   try {
     const { stdout } = await pExec(`playwright-cli ${args.map(q).join(" ")}`, opts);
     return (stdout || "").trim();
   } catch (e) {
+    if (strict) {
+      throw new Error(`playwright-cli ${args.join(" ")} failed:\n` + [e.stderr, e.stdout, e.message].filter(Boolean).join("\n"));
+    }
     return [e.stdout, e.stderr].filter(Boolean).join("\n").trim();
   }
 }
@@ -43,7 +49,7 @@ export async function withFixture(fileName, width, height, fn) {
   // name means one test's close() in finally kills another test's live browser.
   const S = `-s=fv-${port}`;
   try {
-    await cli([S, "open"]);
+    await cli([S, "open"], true);
     await cli([S, "goto", `http://localhost:${port}/`]);
     await cli([S, "resize", String(width), String(height)]);
     const raw = await cli([S, "--raw", "eval", oneLine(PROBE)]);
@@ -70,7 +76,7 @@ export async function evalActions(fileName, width, height, fn) {
   const port = srv.address().port;
   const S = `-s=fv-${port}`;
   try {
-    await cli([S, "open"]);
+    await cli([S, "open"], true);
     await cli([S, "goto", `http://localhost:${port}/`]);
     await cli([S, "resize", String(width), String(height)]);
     const raw = await cli([S, "--raw", "eval", oneLine(ACTIONS)]);

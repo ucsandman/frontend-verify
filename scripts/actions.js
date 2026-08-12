@@ -67,9 +67,15 @@ const mutating=el=>{
      every form on earth. The action attribute is the only signal about what a submit would
      do, so judge the form on that alone. */
   if(t==='FORM')return DANGER.test(norm(el.getAttribute('action')||''));
-  /* Fields are filled, never clicked. Button-like inputs were already excluded from FIELD
-     above and fall through to the fail-closed default. */
-  if(FIELD.test(t)&&!(t==='INPUT'&&BTN_TYPE.test(ty)))return false;
+  /* A TYPED field is filled with text, which cannot change server state, so it is safe
+     regardless of its name. This carve-out is required: the danger list matches Confirm
+     password, Create a password and Reset your password, so without it ordinary signup
+     fields become unfillable.
+     A checkbox, radio or select is TOGGLED, not typed, and a toggle is a state change that
+     many apps auto-save. Those fall through to the danger test below, so
+     <input type=checkbox role=switch aria-label='Revoke all API keys'> stays mutating. */
+  if(t==='TEXTAREA')return false;
+  if(t==='INPUT'&&!BTN_TYPE.test(ty)&&!/^(checkbox|radio)$/.test(ty))return false;
   if(DANGER.test(fullName(el)))return true;
   if(t==='A'){
     const h=el.getAttribute('href')||'';

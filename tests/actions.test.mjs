@@ -104,3 +104,25 @@ test("classifies adversarial destructive controls as mutating", async () => {
     assert.equal(m("#nbsp-signout").mutating, true, "non-breaking space inside the phrase");
   });
 });
+
+/* The regression that round 2 existed to fix had no coverage: the suite stayed green with
+   form filling completely disabled. Assert the OUTCOME, not just the kind. */
+test("an ordinary form stays fillable", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    const f = r.candidates.find((c) => c.path === "#signup");
+    assert.equal(f.mutating, false, "a form containing a Create button must still be fillable");
+    const em = r.candidates.find((c) => c.path === "#em");
+    assert.equal(em.mutating, false, "a typed field is filled with text and cannot mutate");
+  });
+});
+
+/* A checkbox or select is TOGGLED, not typed, and many apps auto-save a toggle. */
+test("a destructive toggle or select is mutating even though it is a field", async () => {
+  await evalActions("adversarial.html", 1440, 900, (r) => {
+    const m = (p) => r.candidates.find((c) => c.path === p);
+    assert.equal(m("#revoke-switch").mutating, true, "checkbox switch named Revoke all API keys");
+    assert.equal(m("#delete-select").mutating, true, "select named Delete workspace");
+    assert.equal(m("#wrapped-erase").mutating, true, "checkbox named by a wrapping label");
+    assert.equal(m("#pw").mutating, false, "Confirm password must stay fillable");
+  });
+});
