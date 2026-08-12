@@ -50,6 +50,8 @@ function render() {
           <span class="w">${esc(f.width)}px</span>
           ${f.isNew ? `<span class="badge">new</span>` : ""}
         </div>
+        ${f.state && f.state !== "initial" ? `<div class="state">only after: ${esc(f.state)}</div>` : ""}
+        ${f.alsoIn && f.alsoIn.length ? `<div class="also">also in ${f.alsoIn.length} other state${f.alsoIn.length > 1 ? "s" : ""}: ${esc(f.alsoIn.join(", "))}</div>` : ""}
         <p class="msg">${esc(f.msg)}</p>
         <code>${esc(f.path)} &rsaquo; ${esc(f.sel)}</code>
         <div class="actions">
@@ -58,9 +60,21 @@ function render() {
         </div>
       </article>`).join("");
     const cov = rep.coverage || {};
+    // Exploration summary. Only rendered when the run actually explored, so an opt-out
+    // report is byte-identical to before this feature existed. `failed` is surfaced here
+    // because a silently broken driver otherwise looks exactly like a clean empty run.
+    const ex = (rep.results || []).reduce((a, r) => ({
+      states: a.states + ((r.states || []).length),
+      noops: a.noops + ((r.noops || []).length),
+      failed: a.failed + ((r.failed || []).length),
+    }), { states: 0, noops: 0, failed: 0 });
+    const exLine = (ex.states || ex.noops || ex.failed)
+      ? `<p class="cov">explored ${ex.states} state(s) &middot; ${ex.noops} interaction(s) changed nothing${ex.failed ? ` &middot; <strong>${ex.failed} failed</strong>` : ""}</p>`
+      : "";
     return `<section>
       <h2>${esc(rep.name)}</h2>
       <p class="cov">${all.length} finding(s) &middot; routes ${esc(cov.tested)}/${esc(cov.total)} &middot; widths ${esc((rep.widths || []).join(", "))} &middot; state ${esc(rep.state)}</p>
+      ${exLine}
       <div class="grid">${cards || "<p class=empty>Nothing found.</p>"}</div>
     </section>`;
   }).join("");
@@ -81,6 +95,10 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:32px 0 4px}
 .rule{font-weight:600;color:var(--fg)}
 .badge{background:var(--acc);color:#fff;border-radius:4px;padding:1px 6px}
 .msg{margin:4px 0}code{font-size:12px;color:var(--mut);word-break:break-all}
+.state{font-size:12px;margin:2px 0 0;padding:2px 8px;border-radius:999px;display:inline-block;background:var(--acc);color:#fff}
+.also{font-size:12px;color:var(--mut);margin:4px 0 0}
+.noops{margin-top:18px;font-size:13px;color:var(--mut)}
+.noops li{margin:2px 0}
 .actions{display:flex;gap:8px;margin-top:10px}
 button{font:inherit;font-size:13px;padding:5px 10px;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:6px;cursor:pointer}
 button:hover{border-color:var(--acc)}

@@ -43,7 +43,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { exploreWidth } from "./explore.mjs";
+import { exploreWidth, runFlow } from "./explore.mjs";
 
 const isWin = process.platform === "win32";
 const CLI_OVERRIDE = (process.env.FE_VERIFY_CLI || "").trim(); // e.g. "npx --no-install playwright-cli"
@@ -383,6 +383,29 @@ async function main() {
         routeStates.push(...explored.states);
         routeNoops.push(...explored.noops);
         routeFailed.push(...explored.failed);
+
+        // Declared flows reach depth that auto-exploration deliberately does not attempt.
+        // They run independently of explore.enabled -- the author wrote these steps by
+        // hand, so they are not gated by the safety classifier or by budgetMs.
+        const steps = (cfg.flows || {})[path];
+        if (steps && steps.length) {
+          cli([S, "goto", url]);
+          cli([S, "resize", String(w), String(cfg.viewportHeight || 900)]);
+          const fout = await runFlow(
+            {
+              click: async (p) => { cli([S, "click", p]); },
+              fillOne: async (p, v) => { cli([S, "fill", p, v]); },
+              scan: async () => JSON.parse(cli([S, "--raw", "eval", PROBE_SRC]).out).findings || [],
+            },
+            steps,
+          );
+          // Same in-place width tagging as explore findings: a spread copy here would send
+          // alsoIn to a throwaway object and it would never reach report.json.
+          for (const f of fout.findings) f.width = w;
+          findings.push(...dedupeInto(seen, fout.findings, w));
+          routeStates.push(...fout.states);
+          routeFailed.push(...fout.failed);
+        }
       }
 
       // axe-core, once per route at the widest viewport. wcag22aa is REQUIRED in the tag

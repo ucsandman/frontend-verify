@@ -65,3 +65,37 @@ export async function exploreWidth(deps, opts) {
 
   return { states, findings, noops, failed };
 }
+
+/**
+ * Run a declared flow. Flows exist for depth that auto-exploration deliberately does not
+ * attempt: wizard step 3, or a dialog opened from inside another dialog. They are authored
+ * by hand, so they are NOT subject to the safety classifier or to budgetMs -- the author
+ * chose these steps explicitly.
+ * @param {{click:Function, fillOne:Function, scan:Function}} deps
+ * @param {Array<{click?:string, fill?:object, scan?:boolean}>} steps
+ * @returns {Promise<{states:Array, findings:Array, failed:Array}>}
+ */
+export async function runFlow(deps, steps) {
+  const findings = [];
+  const states = [];
+  const failed = [];
+  for (let i = 0; i < (steps || []).length; i++) {
+    const s = steps[i];
+    const label = `flow:${i + 1}`;
+    try {
+      if (s.click) await deps.click(s.click);
+      if (s.fill) for (const [sel, val] of Object.entries(s.fill)) await deps.fillOne(sel, val);
+    } catch (e) {
+      // Same rule as exploreWidth: never swallow silently, and never let one bad step
+      // hide the fact that the remaining steps never ran.
+      failed.push({ path: s.click || Object.keys(s.fill || {}).join(","), error: String((e && e.message) || e) });
+      break;
+    }
+    if (s.scan) {
+      const found = await deps.scan(label);
+      for (const f of found) findings.push({ ...f, state: label });
+      states.push({ label, kind: "flow", scanned: found.length, noop: false });
+    }
+  }
+  return { states, findings, failed };
+}

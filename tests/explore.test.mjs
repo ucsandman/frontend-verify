@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { exploreWidth } from "../scripts/explore.mjs";
+import { exploreWidth, runFlow } from "../scripts/explore.mjs";
 
 /** Build fake deps whose click() moves through a scripted list of signatures. */
 function fakeDeps({ candidates, sigs, findingsByLabel = {} }) {
@@ -215,4 +215,50 @@ test("invalidPass false runs only the valid pass", async () => {
   };
   await exploreWidth(deps, { budgetMs: 10000, mutate: [], skip: [], invalidPass: false });
   assert.deepEqual(modes, ["valid"]);
+});
+
+/* --- Task 8: declared flows, for depth auto-exploration deliberately does not attempt --- */
+
+test("a flow runs its steps in order and scans only where asked", async () => {
+  const acts = [];
+  const deps = {
+    click: async (p) => acts.push(`click:${p}`),
+    fillOne: async (p, v) => acts.push(`fill:${p}=${v}`),
+    scan: async (l) => { acts.push(`scan:${l}`); return [{ rule: "contrast", sel: "span.x" }]; },
+  };
+  const out = await runFlow(deps, [
+    { click: "#billing-tab" },
+    { fill: { "#seats": "25" } },
+    { click: "#review", scan: true },
+  ]);
+  assert.deepEqual(acts, ["click:#billing-tab", "fill:#seats=25", "click:#review", "scan:flow:3"]);
+  assert.equal(out.findings.length, 1);
+  assert.equal(out.findings[0].state, "flow:3");
+});
+
+test("a flow stops at a failed step and records why, rather than scanning a wrong state", async () => {
+  /* If step 2 of a wizard never happened, scanning step 3 measures the wrong page and
+     reports defects against a state the user never reaches. */
+  const deps = {
+    click: async (p) => { if (p === "#gone") throw new Error("no such element"); },
+    fillOne: async () => {},
+    scan: async () => [{ rule: "contrast", sel: "span.x" }],
+  };
+  const out = await runFlow(deps, [
+    { click: "#ok" },
+    { click: "#gone", scan: true },
+    { click: "#never", scan: true },
+  ]);
+  assert.equal(out.findings.length, 0, "must not scan after a broken step");
+  assert.equal(out.failed.length, 1);
+  assert.equal(out.failed[0].path, "#gone");
+  assert.match(out.failed[0].error, /no such element/);
+});
+
+test("an empty or missing flow is a no-op, not a crash", async () => {
+  const deps = { click: async () => {}, fillOne: async () => {}, scan: async () => [] };
+  const a = await runFlow(deps, []);
+  const b = await runFlow(deps, undefined);
+  assert.deepEqual(a, { states: [], findings: [], failed: [] });
+  assert.deepEqual(b, { states: [], findings: [], failed: [] });
 });

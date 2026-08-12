@@ -239,6 +239,53 @@ Field notes:
   it never fails the run.
 - `mutePath`: path to the mute file. Defaults to `<outDir>/muted.json`.
 
+## Interaction (optional, off by default)
+
+By default the scanner only ever measures each route's **first paint**. Tabs, accordions,
+dialogs, filled forms and validation-error states are never rendered, so the rules never see
+them. Turn on exploration and it reaches those states, then runs the same seven rules there.
+
+```json
+"explore": {
+  "enabled": true,
+  "budgetMs": 60000,
+  "invalidPass": true,
+  "mutate": ["#new-policy-form"],
+  "skip": [".danger-zone"]
+},
+"flows": {
+  "/settings": [
+    { "click": "#billing-tab" },
+    { "fill": { "#seats": "25" } },
+    { "click": "#review", "scan": true }
+  ]
+}
+```
+
+**Nothing changes unless you opt in.** With `explore` absent or `enabled: false`, output is
+byte-identical to before this feature existed, down to the absence of the `state` key.
+
+**It will not change your data.** Auto-exploration only touches controls it can positively
+identify as safe: `[role=tab]`, `summary`, `[aria-expanded]`, `[aria-haspopup]`, and typed
+form fields. Everything else is treated as mutating and skipped, including any
+`button[type=button]`, because a `type=button` can call `fetch('/api/delete')` and nothing in
+the DOM distinguishes that from a tab switch. Submits, destructive labels, and links that
+navigate away are always skipped. Forms are **filled but never submitted**.
+
+To act on something classified mutating, name its exact selector in `mutate`. `skip` wins
+over `mutate`.
+
+- `budgetMs` — total exploration time per route, split evenly across widths. Default 60000.
+- `invalidPass` — default `true`: fill each form with invalid values first (to reach error
+  states), then valid ones. Set `false` if validation is server-side and invisible without a
+  submit.
+- `flows` — hand-written steps for depth auto-exploration will not attempt, such as step 3
+  of a wizard. Flows run whether or not `explore.enabled` is set, and are not budget-limited,
+  because you chose the steps yourself.
+
+Each finding gains the state it was found in. A defect present in several states is reported
+**once**, listing the others, so turning this on cannot flood the report.
+
 ## Report page
 
 `verify-routes.mjs` writes JSON; it does not render anything on its own. To
