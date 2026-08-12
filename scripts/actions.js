@@ -46,7 +46,6 @@ const labelsFor=el=>{
 const fullName=el=>norm(
   (el.getAttribute('aria-label')||'')+' '+(el.getAttribute('title')||'')+' '+
   (el.getAttribute('value')||'')+' '+(el.getAttribute('placeholder')||'')+' '+
-  (el.tagName==='FORM'?(el.getAttribute('action')||''):'')+' '+
   labelsFor(el)+' '+(el.textContent||'')
 );
 const nameOf=el=>fullName(el).slice(0,40);
@@ -63,6 +62,14 @@ const mutating=el=>{
   if(t==='BUTTON'&&ty==='submit')return true;
   if(t==='BUTTON'&&!el.hasAttribute('type')&&el.closest('form'))return true;
   if(el.hasAttribute('formaction'))return true;
+  /* A form is FILLED, never submitted, so its descendant text is irrelevant: almost every
+     real form contains a Save or Create button and testing the whole subtree would skip
+     every form on earth. The action attribute is the only signal about what a submit would
+     do, so judge the form on that alone. */
+  if(t==='FORM')return DANGER.test(norm(el.getAttribute('action')||''));
+  /* Fields are filled, never clicked. Button-like inputs were already excluded from FIELD
+     above and fall through to the fail-closed default. */
+  if(FIELD.test(t)&&!(t==='INPUT'&&BTN_TYPE.test(ty)))return false;
   if(DANGER.test(fullName(el)))return true;
   if(t==='A'){
     const h=el.getAttribute('href')||'';
