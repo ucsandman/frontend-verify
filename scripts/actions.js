@@ -13,5 +13,32 @@ const signature=()=>{
   return els.length+'|'+hash(txt);
 };
 
-return {sig:signature(),candidates:[]};
+/* A path must survive re-navigation, so it cannot rely on any attribute we set at runtime.
+   An id is best when it is a safe identifier; otherwise walk a nth-child chain from body. */
+const ID_OK=/^[A-Za-z][\w-]*$/;
+const uniq=p=>{try{return document.querySelectorAll(p).length===1}catch(e){return false}};
+const path=el=>{
+  if(el.id&&ID_OK.test(el.id)){const p='#'+el.id;if(uniq(p))return p}
+  const parts=[];let n=el;
+  while(n&&n!==document.body&&n.parentElement){
+    const par=n.parentElement;
+    const idx=[...par.children].indexOf(n)+1;
+    parts.unshift(n.tagName.toLowerCase()+':nth-child('+idx+')');
+    n=par;
+  }
+  const p='body > '+parts.join(' > ');
+  return uniq(p)?p:null;
+};
+
+const nameOf=el=>((el.getAttribute('aria-label')||el.getAttribute('title')||el.textContent||'').trim()).slice(0,40);
+
+const candidates=[];
+for(const el of [...document.querySelectorAll('[role=tab]')]){
+  if(!vis(el))continue;
+  const p=path(el);
+  if(!p)continue;
+  candidates.push({path:p,kind:'tab',label:nameOf(el),mutating:false,rank:1});
+}
+
+return {sig:signature(),candidates:candidates};
 })()

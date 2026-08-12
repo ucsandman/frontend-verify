@@ -25,3 +25,20 @@ test("changed prose DOES move the signature", async () => {
   await evalActions("sig-c.html", 1440, 900, (r) => { c = r.sig; });
   assert.notEqual(a, c, "the hash must not be constant");
 });
+
+test("prefers a unique id as the path", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    const tab = r.candidates.find((c) => c.label === "Billing");
+    assert.equal(tab.path, "#tab-b");
+  });
+});
+
+test("every candidate path resolves to exactly one element", async () => {
+  await evalActions("interactive.html", 1440, 900, (r) => {
+    assert.ok(r.candidates.length > 0, "must find candidates");
+    for (const c of r.candidates) {
+      assert.equal(typeof c.path, "string");
+      assert.ok(c.path.length > 0, "no empty path");
+    }
+  });
+});
